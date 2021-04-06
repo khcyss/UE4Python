@@ -1,0 +1,11 @@
+pydevd_pycharm
+pydevd
+pydevconsole
+pydevd_file_utils
+pydev_pysrc
+interpreterInfo
+pycompletionserver
+setup_cython
+pydev_app_engine_debug_startup
+pydev_coverage
+pydevd_tracing
