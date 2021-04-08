@@ -1026,6 +1026,22 @@ PyObject *py_ue_functions(ue_PyUObject *self, PyObject * args)
 	for (TFieldIterator<UFunction> FuncIt(u_struct); FuncIt; ++FuncIt)
 	{
 		UFunction* func = *FuncIt;
+
+		TFieldIterator<UProperty> It(func);
+		while (It)
+		{
+			UProperty* p = *It;
+			if (p->PropertyFlags & CPF_Parm)
+			{
+				UE_LOG(LogPython, Warning, TEXT("Parent PROP: %s %d/%d %d %d %d %s %p"), *p->GetName(), (int)p->PropertyFlags, (int)UFunction::GetDefaultIgnoredSignatureCompatibilityFlags(), (int)(p->PropertyFlags & ~UFunction::GetDefaultIgnoredSignatureCompatibilityFlags()), p->GetSize(), p->GetOffset_ForGC(), *p->GetClass()->GetName(), p->GetClass());
+				UClassProperty* ucp = Cast<UClassProperty>(p);
+				if (ucp)
+				{
+					UE_LOG(LogPython, Warning, TEXT("Parent UClassProperty = %p %s %p %s"), ucp->PropertyClass, *ucp->PropertyClass->GetName(), ucp->MetaClass, *ucp->MetaClass->GetName());
+				}
+			}
+			++It;
+		}
 		PyObject *func_name = PyUnicode_FromString(TCHAR_TO_UTF8(*func->GetFName().ToString()));
 		PyList_Append(ret, func_name);
 		Py_DECREF(func_name);
