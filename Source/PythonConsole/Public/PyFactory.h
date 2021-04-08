@@ -13,6 +13,7 @@ public:
 
 	virtual UObject* FactoryCreateFile(UClass * Class, UObject *InParent, FName InName, EObjectFlags Flags, const FString& Filename, const TCHAR* Parms, FFeedbackContext *Warn, bool& bOutOperationCanceled) override {
 		return PyFactoryCreateFile(Class, InParent, InName.ToString(), Filename);
+		//return PyFactoryCreateFile(InParent, InName.ToString(), Filename);
 	}
 
 

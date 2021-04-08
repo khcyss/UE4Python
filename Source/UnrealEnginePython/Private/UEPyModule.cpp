@@ -3152,7 +3152,7 @@ PyObject* ue_bind_pyevent(ue_PyUObject* u_obj, FString event_name, PyObject* py_
 
 	Py_RETURN_NONE;
 }
-
+PRAGMA_DISABLE_OPTIMIZATION
 UFunction* unreal_engine_add_function(UClass* u_class, char* name, PyObject* py_callable, uint32 function_flags)
 {
 
@@ -3333,9 +3333,18 @@ UFunction* unreal_engine_add_function(UClass* u_class, char* name, PyObject* py_
 			if (py_obj->ue_object->IsA<UClass>())
 			{
 				UClass* p_u_class = (UClass*)py_obj->ue_object;
-				UObjectProperty* prop_base = NewObject<UObjectProperty>(function, UTF8_TO_TCHAR(p_name), RF_Public);
-				prop_base->SetPropertyClass(p_u_class);
-				prop = prop_base;
+				if (py_obj->ue_object->GetName() == UClass::StaticClass()->GetName())
+				{
+					UClassProperty* prop_base = NewObject<UClassProperty>(function, UTF8_TO_TCHAR(p_name), RF_Public);
+					prop_base->SetPropertyClass(p_u_class);
+					prop = prop_base;
+				}
+				else
+				{
+					UObjectProperty* prop_base = NewObject<UObjectProperty>(function, UTF8_TO_TCHAR(p_name), RF_Public);
+					prop_base->SetPropertyClass(p_u_class);
+					prop = prop_base;
+				}
 			}
 #if ENGINE_MINOR_VERSION > 17
 			else if (py_obj->ue_object->IsA<UEnum>())
@@ -3482,9 +3491,18 @@ UFunction* unreal_engine_add_function(UClass* u_class, char* name, PyObject* py_
 				if (py_obj->ue_object->IsA<UClass>())
 				{
 					UClass* p_u_class = (UClass*)py_obj->ue_object;
-					UObjectProperty* prop_base = NewObject<UObjectProperty>(function, UTF8_TO_TCHAR(p_name), RF_Public);
-					prop_base->SetPropertyClass(p_u_class);
-					prop = prop_base;
+					if (py_obj->ue_object->GetName() == UClass::StaticClass()->GetName())
+					{
+						UClassProperty* prop_base = NewObject<UClassProperty>(function, UTF8_TO_TCHAR(p_name), RF_Public);
+						prop_base->SetPropertyClass(p_u_class);
+						prop = prop_base;
+					}
+					else
+					{
+						UObjectProperty* prop_base = NewObject<UObjectProperty>(function, UTF8_TO_TCHAR(p_name), RF_Public);
+						prop_base->SetPropertyClass(p_u_class);
+						prop = prop_base;
+					}
 				}
 #if ENGINE_MINOR_VERSION > 17
 				else if (py_obj->ue_object->IsA<UEnum>())
@@ -3645,6 +3663,7 @@ UFunction* unreal_engine_add_function(UClass* u_class, char* name, PyObject* py_
 	return function;
 }
 
+PRAGMA_ENABLE_OPTIMIZATION
 FGuid* ue_py_check_fguid(PyObject* py_obj)
 {
 	ue_PyUScriptStruct* ue_py_struct = py_ue_is_uscriptstruct(py_obj);

@@ -2,6 +2,8 @@
 #include "PythonClass.h"
 #include "UObject/UEPyObject.h"
 
+PRAGMA_DISABLE_OPTIMIZATION
+
 // hack for avoiding loops in class constructors (thanks to the Unreal.js project for the idea)
 UClass *ue_py_class_constructor_placeholder = nullptr;
 static void UEPyClassConstructor(UClass *u_class, const FObjectInitializer &ObjectInitializer)
@@ -505,3 +507,6 @@ int unreal_engine_py_init(ue_PyUObject *self, PyObject *args, PyObject *kwds)
 
 	return 0;
 }
+
+
+PRAGMA_ENABLE_OPTIMIZATION

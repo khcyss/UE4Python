@@ -47,7 +47,7 @@ const char *ue4_module_options = "linux_global_symbols";
 #include "Android/AndroidApplication.h"
 #endif
 #include "Engine/World.h"
-
+PRAGMA_DISABLE_OPTIMIZATION
 
 const char *UEPyUnicode_AsUTF8(PyObject *py_str)
 {
@@ -145,6 +145,11 @@ void FUnrealEnginePythonModule::UESetupPythonInterpreter(bool verbose)
 	PyObject *py_zip_path = PyUnicode_FromString(zip_path);
 	PyList_Insert(py_path, 0, py_zip_path);
 
+	TSharedPtr<IPlugin> UnrealEnginPythonPlugin = IPluginManager::Get().FindPlugin("UnrealEnginePython");
+	if (UnrealEnginPythonPlugin.IsValid())
+	{
+		ScriptsPaths.Add(UnrealEnginPythonPlugin->GetContentDir());
+	}
 
 	int i = 0;
 	for (FString ScriptsPath : ScriptsPaths)
@@ -726,3 +731,5 @@ PyObject *ue_py_register_module(const char *name)
 #undef LOCTEXT_NAMESPACE
 
 IMPLEMENT_MODULE(FUnrealEnginePythonModule, UnrealEnginePython)
+
+PRAGMA_ENABLE_OPTIMIZATION

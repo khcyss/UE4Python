@@ -112,6 +112,7 @@ public:
 	void RunFileInMainThread(char *);
 #endif
 
+	//≥ı ºªØpython Ω‚ Õ∆˜
 	void UESetupPythonInterpreter(bool);
 
 	TArray<FString> ScriptsPaths;
