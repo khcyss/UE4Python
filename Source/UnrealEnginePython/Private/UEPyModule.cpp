@@ -3336,7 +3336,8 @@ UFunction* unreal_engine_add_function(UClass* u_class, char* name, PyObject* py_
 				if (py_obj->ue_object->GetName() == UClass::StaticClass()->GetName())
 				{
 					UClassProperty* prop_base = NewObject<UClassProperty>(function, UTF8_TO_TCHAR(p_name), RF_Public);
-					prop_base->SetPropertyClass(p_u_class);
+					prop_base->SetPropertyClass(UClass::StaticClass());
+					prop_base->SetMetaClass(UObject::StaticClass());
 					prop = prop_base;
 				}
 				else
@@ -3494,7 +3495,8 @@ UFunction* unreal_engine_add_function(UClass* u_class, char* name, PyObject* py_
 					if (py_obj->ue_object->GetName() == UClass::StaticClass()->GetName())
 					{
 						UClassProperty* prop_base = NewObject<UClassProperty>(function, UTF8_TO_TCHAR(p_name), RF_Public);
-						prop_base->SetPropertyClass(p_u_class);
+						prop_base->SetPropertyClass(UClass::StaticClass());
+						prop_base->SetMetaClass(UObject::StaticClass());
 						prop = prop_base;
 					}
 					else
@@ -3561,7 +3563,7 @@ UFunction* unreal_engine_add_function(UClass* u_class, char* name, PyObject* py_
 				}
 				++It;
 			}
-
+			UE_LOG(LogPython,Warning,TEXT("\n"));
 			TFieldIterator<UProperty> It2(function);
 			while (It2)
 			{
