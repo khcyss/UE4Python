@@ -145,11 +145,11 @@ void FUnrealEnginePythonModule::UESetupPythonInterpreter(bool verbose)
 	PyObject *py_zip_path = PyUnicode_FromString(zip_path);
 	PyList_Insert(py_path, 0, py_zip_path);
 
-	TSharedPtr<IPlugin> UnrealEnginPythonPlugin = IPluginManager::Get().FindPlugin("UnrealEnginePython");
+	/*TSharedPtr<IPlugin> UnrealEnginPythonPlugin = IPluginManager::Get().FindPlugin("UnrealEnginePython");
 	if (UnrealEnginPythonPlugin.IsValid())
 	{
 		ScriptsPaths.Add(UnrealEnginPythonPlugin->GetContentDir());
-	}
+	}*/
 
 	int i = 0;
 	for (FString ScriptsPath : ScriptsPaths)
