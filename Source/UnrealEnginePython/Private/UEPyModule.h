@@ -40,7 +40,7 @@ PyObject *ue_unbind_pyevent(ue_PyUObject *, FString, PyObject *, bool);
 PyObject *py_ue_ufunction_call(UFunction *, UObject *, PyObject *, int, PyObject *);
 
 UClass *unreal_engine_new_uclass(char *, UClass *);
-UFunction *unreal_engine_add_function(UClass *, char *, PyObject *, uint32);
+UFunction *unreal_engine_add_function(UClass *, char *, PyObject *, uint32);//Python 函数注册到UE4中供蓝图或者c++通过反射可以调用
 
 
 template <typename T> T *ue_py_check_type(PyObject *py_obj)

@@ -26,12 +26,10 @@ class MyFbxFactory(PyFactory):
                 objects.append(obj)
         return objects
 
-    def PyFactoryCreateFile(self, uclass: Class, parent: Object, name: str, filename: str) -> Object:
-        self.importer.initialize(filename, self.io_settings)
-        self.importer._import(self.scene)
-        tempffbx = self.get_objects_by_class('FbxImporter')
-        tempinstance = tempffbx._get_instance()
-        tempinstance._import_from_file(filename, 'fbx', True)
+    def PyFactoryCreateFile(self, class_: Class, parent: Object, name: str, filename: str) -> Object:
+        if(class_.get_name() == StaticMesh.get_name()):
+            self.importer.initialize(filename, self.io_settings)
+            self.importer._import(self.scene)
 
         return None
 
