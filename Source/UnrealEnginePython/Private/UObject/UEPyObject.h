@@ -48,7 +48,7 @@ PyObject *py_ue_enum_names(ue_PyUObject *, PyObject *);
 #if ENGINE_MINOR_VERSION >= 15
 PyObject *py_ue_enum_user_defined_names(ue_PyUObject *, PyObject *);
 #endif
-
+FString Py_ue_getTypenametoPy(UProperty*);
 
 PyObject *py_ue_bind_event(ue_PyUObject *, PyObject *);
 PyObject *py_ue_unbind_event(ue_PyUObject *, PyObject *);

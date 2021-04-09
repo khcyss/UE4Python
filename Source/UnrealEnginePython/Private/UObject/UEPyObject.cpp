@@ -17,6 +17,7 @@
 #include "Runtime/Core/Public/Misc/OutputDeviceNull.h"
 #include "Runtime/CoreUObject/Public/Serialization/ObjectWriter.h"
 #include "Runtime/CoreUObject/Public/Serialization/ObjectReader.h"
+#include "UnrealType.h"
 
 PyObject *py_ue_get_class(ue_PyUObject * self, PyObject * args)
 {
@@ -974,6 +975,26 @@ PyObject *py_ue_enum_user_defined_names(ue_PyUObject *self, PyObject * args)
 	}
 	return ret;
 }
+
+FString Py_ue_getTypenametoPy(UProperty* p)
+{
+	if (p)
+	{
+		FString TypeName = p->GetClass()->GetName().Replace(TEXT("Property"),TEXT(""));
+		TypeName = TypeName.ToLower();
+		if (TypeName == "class")
+		{
+			TypeName = "Class";
+		}
+		else if (TypeName == "struct")
+		{
+			TypeName = "UScriptStruct";
+		}
+		return TypeName;
+	}
+	return "";
+}
+
 #endif
 
 PyObject *py_ue_properties(ue_PyUObject *self, PyObject * args)
@@ -997,7 +1018,8 @@ PyObject *py_ue_properties(ue_PyUObject *self, PyObject * args)
 	for (TFieldIterator<UProperty> PropIt(u_struct); PropIt; ++PropIt)
 	{
 		UProperty* property = *PropIt;
-		PyObject *property_name = PyUnicode_FromString(TCHAR_TO_UTF8(*property->GetName()));
+		FString Propertyname = FString::Printf(TEXT("%s: %s"), *property->GetName(),*Py_ue_getTypenametoPy(property));
+		PyObject *property_name = PyUnicode_FromString(TCHAR_TO_UTF8(*Propertyname));
 		PyList_Append(ret, property_name);
 		Py_DECREF(property_name);
 	}
@@ -1026,7 +1048,7 @@ PyObject *py_ue_functions(ue_PyUObject *self, PyObject * args)
 	for (TFieldIterator<UFunction> FuncIt(u_struct); FuncIt; ++FuncIt)
 	{
 		UFunction* func = *FuncIt;
-		FString ParamString ="(self,"
+		FString FunctionParam = FString::Printf(TEXT("%s(self"), *func->GetFName().ToString());
 		TFieldIterator<UProperty> It(func);
 		while (It)
 		{
@@ -1035,22 +1057,26 @@ PyObject *py_ue_functions(ue_PyUObject *self, PyObject * args)
 			{
 				if (p->GetName() == "ReturnValue")
 				{
-
+					FunctionParam.Append(FString::Printf(TEXT(") -> %s: pass"), *Py_ue_getTypenametoPy(p)));
 				}
 				else
 				{
-
+					FunctionParam.Append(FString::Printf(TEXT(", %s: %s"), *p->GetName(), *Py_ue_getTypenametoPy(p)));
 				}
-				UE_LOG(LogPython, Warning, TEXT("Parent PROP: %s %d/%d %d %d %d %s %p"), *p->GetName(), (int)p->PropertyFlags, (int)UFunction::GetDefaultIgnoredSignatureCompatibilityFlags(), (int)(p->PropertyFlags & ~UFunction::GetDefaultIgnoredSignatureCompatibilityFlags()), p->GetSize(), p->GetOffset_ForGC(), *p->GetClass()->GetName(), p->GetClass());
+
+				//UE_LOG(LogPython, Warning, TEXT("Parent PROP: %s %d/%d %d %d %d %s %p"), *p->GetName(), (int)p->PropertyFlags, (int)UFunction::GetDefaultIgnoredSignatureCompatibilityFlags(), (int)(p->PropertyFlags & ~UFunction::GetDefaultIgnoredSignatureCompatibilityFlags()), p->GetSize(), p->GetOffset_ForGC(), *p->GetClass()->GetName(), p->GetClass());
 				UClassProperty* ucp = Cast<UClassProperty>(p);
 				if (ucp)
 				{
-					UE_LOG(LogPython, Warning, TEXT("Parent UClassProperty = %p %s %p %s"), ucp->PropertyClass, *ucp->PropertyClass->GetName(), ucp->MetaClass, *ucp->MetaClass->GetName());
+					//UE_LOG(LogPython, Warning, TEXT("Parent UClassProperty = %p %s %p %s"), ucp->PropertyClass, *ucp->PropertyClass->GetName(), ucp->MetaClass, *ucp->MetaClass->GetName());
 				}
 			}
 			++It;
 		}
-		PyObject *func_name = PyUnicode_FromString(TCHAR_TO_UTF8(*func->GetFName().ToString()));
+		//PyObject *func_name = PyUnicode_FromString(TCHAR_TO_UTF8(*func->GetFName().ToString()));
+		if(!FunctionParam.EndsWith("pass"))FunctionParam.Append("): pass");
+		FunctionParam.Append("\n");
+		PyObject *func_name = PyUnicode_FromString(TCHAR_TO_UTF8(*FunctionParam));
 		PyList_Append(ret, func_name);
 		Py_DECREF(func_name);
 	}
