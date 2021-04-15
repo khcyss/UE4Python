@@ -100,6 +100,8 @@ DECLARE_LOG_CATEGORY_EXTERN(LogPython, Log, All);
 class UNREALENGINEPYTHON_API FUnrealEnginePythonModule : public IModuleInterface
 {
 public:
+	
+	static FUnrealEnginePythonModule* Get();
 
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
@@ -124,13 +126,17 @@ public:
 	// pep8ize a string using various strategy (currently only autopep8 is supported)
 	FString Pep8ize(FString Code);
 
+	void RegisterPyDebug();
+	void UnRegisterPyDebug();
+
+
 private:
 	void *ue_python_gil;
 	// used by console
 	void *main_dict;
 	void *local_dict;
 	void *main_module;
-
+	PyObject* DebugModule;
 	TSharedPtr<FSlateStyleSet> StyleSet;
 };
 
