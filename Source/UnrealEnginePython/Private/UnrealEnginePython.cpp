@@ -47,6 +47,7 @@ const char *ue4_module_options = "linux_global_symbols";
 #include "Android/AndroidApplication.h"
 #endif
 #include "Engine/World.h"
+#include "ModuleManager.h"
 PRAGMA_DISABLE_OPTIMIZATION
 
 const char *UEPyUnicode_AsUTF8(PyObject *py_str)
@@ -245,6 +246,12 @@ FAutoConsoleCommand ExecPythonStringCommand(
 	*NSLOCTEXT("UnrealEnginePython", "CommandText_Cmd", "Execute python string").ToString(),
 	FConsoleCommandWithArgsDelegate::CreateStatic(consoleExecString));
 
+
+FUnrealEnginePythonModule* FUnrealEnginePythonModule::Get()
+{
+	static const FName ModuleName = "UnrealEnginePython";
+	return FModuleManager::GetModulePtr<FUnrealEnginePythonModule>(ModuleName);
+}
 
 void FUnrealEnginePythonModule::StartupModule()
 {
@@ -502,6 +509,10 @@ void FUnrealEnginePythonModule::StartupModule()
 
 	setup_stdout_stderr();
 
+#if !UE_BUILD_SHIPPING
+	DebugModule = PyImport_ImportModule("Debug");
+#endif
+
 	if (PyImport_ImportModule("ue_site"))
 	{
 		UE_LOG(LogPython, Log, TEXT("ue_site Python module successfully imported"));
@@ -632,6 +643,42 @@ FString FUnrealEnginePythonModule::Pep8ize(FString Code)
 	return NewCode;
 }
 
+
+void FUnrealEnginePythonModule::RegisterPyDebug()
+{
+	FScopePythonGIL gil;
+	if (DebugModule)
+	{
+		if (!PyObject_HasAttrString(DebugModule, (char*)"attach_to_debugger"))
+			return;
+
+		PyObject* bp_ret = PyObject_CallMethod(DebugModule, (char*)"attach_to_debugger", NULL);
+		if (!bp_ret)
+		{
+			unreal_engine_py_log_error();
+			return;
+		}
+		Py_DECREF(bp_ret);
+	}
+}
+
+void FUnrealEnginePythonModule::UnRegisterPyDebug()
+{
+	FScopePythonGIL gil;
+	if (DebugModule)
+	{
+		if (!PyObject_HasAttrString(DebugModule, (char*)"detach_debugger"))
+			return;
+
+		PyObject* bp_ret = PyObject_CallMethod(DebugModule, (char*)"detach_debugger", NULL);
+		if (!bp_ret)
+		{
+			unreal_engine_py_log_error();
+			return;
+		}
+		Py_DECREF(bp_ret);
+	}
+}
 
 void FUnrealEnginePythonModule::RunFile(char *filename)
 {
