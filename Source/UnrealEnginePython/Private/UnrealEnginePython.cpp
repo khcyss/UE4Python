@@ -133,7 +133,7 @@ void FUnrealEnginePythonModule::UESetupPythonInterpreter(bool verbose)
 	}
 
 	PySys_SetArgv(Args.Num(), argv);
-
+	
 	unreal_engine_init_py_module();
 
 	PyObject *py_sys = PyImport_ImportModule("sys");
