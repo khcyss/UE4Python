@@ -512,7 +512,7 @@ void FUnrealEnginePythonModule::StartupModule()
 #if !UE_BUILD_SHIPPING
 	DebugModule = PyImport_ImportModule("Debug");
 #endif
-
+	RegisterPyDebug();
 	if (PyImport_ImportModule("ue_site"))
 	{
 		UE_LOG(LogPython, Log, TEXT("ue_site Python module successfully imported"));
