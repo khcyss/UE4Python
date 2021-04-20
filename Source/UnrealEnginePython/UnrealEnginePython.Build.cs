@@ -196,7 +196,8 @@ public class UnrealEnginePython : ModuleRules
                 "Persona",
                 "PropertyEditor",
                 "LandscapeEditor",
-                "MaterialEditor"
+                "MaterialEditor",
+                "EditorSubsystem"
             });
         }
 

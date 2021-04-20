@@ -1,5 +1,8 @@
 #pragma once
 
+#include "CoreTypes.h"
+#include "Stats/Stats.h"
+
 
 #if PLATFORM_MAC
 #include <Headers/Python.h>
@@ -18,3 +21,6 @@
 #include <include/Python.h>
 #include <include/structmember.h>
 #endif
+
+
+DECLARE_STATS_GROUP(TEXT("Python"), STATGROUP_Python, STATCAT_Advanced);

@@ -48,6 +48,9 @@ const char *ue4_module_options = "linux_global_symbols";
 #endif
 #include "Engine/World.h"
 #include "ModuleManager.h"
+#include "PyExpand/PyUtil.h"
+#include "PyExpand/PyPtr.h"
+
 PRAGMA_DISABLE_OPTIMIZATION
 
 const char *UEPyUnicode_AsUTF8(PyObject *py_str)
@@ -565,7 +568,7 @@ void FUnrealEnginePythonModule::ShutdownModule()
 	}
 }
 
-void FUnrealEnginePythonModule::RunString(char *str)
+bool FUnrealEnginePythonModule::RunString(char *str)
 {
 	FScopePythonGIL gil;
 
@@ -575,12 +578,13 @@ void FUnrealEnginePythonModule::RunString(char *str)
 		if (PyErr_ExceptionMatches(PyExc_SystemExit))
 		{
 			PyErr_Clear();
-			return;
+			return false;
 		}
 		unreal_engine_py_log_error();
-		return;
+		return false;
 	}
 	Py_DECREF(eval_ret);
+	return true;
 }
 
 #if PLATFORM_MAC
@@ -677,6 +681,69 @@ void FUnrealEnginePythonModule::UnRegisterPyDebug()
 			return;
 		}
 		Py_DECREF(bp_ret);
+	}
+}
+
+void FUnrealEnginePythonModule::ImportUnrealModule(const TCHAR* InModuleName)
+{
+	const FString PythonModuleName = FString::Printf(TEXT("unreal_%s"), InModuleName);
+	const FString NativeModuleName = FString::Printf(TEXT("_unreal_%s"), InModuleName);
+
+	FScopePythonGIL GIL;
+
+	const TCHAR* ModuleNameToImport = nullptr;
+	PyObject* ModuleToReload = nullptr;
+	if (PyUtil::IsModuleAvailableForImport(*PythonModuleName))
+	{
+		// Python modules that are already loaded should be reloaded if we're requested to import them again
+		if (!PyUtil::IsModuleImported(*PythonModuleName, &ModuleToReload))
+		{
+			ModuleNameToImport = *PythonModuleName;
+		}
+	}
+	else if (PyUtil::IsModuleAvailableForImport(*NativeModuleName))
+	{
+		ModuleNameToImport = *NativeModuleName;
+	}
+
+	FPyObjectPtr PyModule;
+	if (ModuleToReload)
+	{
+		PyModule = FPyObjectPtr::StealReference(PyImport_ReloadModule(ModuleToReload));
+	}
+	else if (ModuleNameToImport)
+	{
+		PyModule = FPyObjectPtr::StealReference(PyImport_ImportModule(TCHAR_TO_UTF8(ModuleNameToImport)));
+	}
+
+	if (PyModule)
+	{
+		check(main_module);
+		PyObject* PyUnrealModuleDict = PyModule_GetDict((PyObject*)main_module);
+
+		// Hoist every public symbol from this module into the top-level "unreal" module
+		{
+			PyObject* PyModuleDict = PyModule_GetDict(PyModule);
+
+			PyObject* PyObjKey = nullptr;
+			PyObject* PyObjValue = nullptr;
+			Py_ssize_t ModuleDictIndex = 0;
+			while (PyDict_Next(PyModuleDict, &ModuleDictIndex, &PyObjKey, &PyObjValue))
+			{
+				if (PyObjKey)
+				{
+					const FString Key = PyUtil::PyObjectToUEString(PyObjKey);
+					if (Key.Len() > 0 && Key[0] != TEXT('_'))
+					{
+						PyDict_SetItem(PyUnrealModuleDict, PyObjKey, PyObjValue);
+					}
+				}
+			}
+		}
+	}
+	else
+	{
+		PyUtil::LogPythonError(/*bInteractive*/true);
 	}
 }
 

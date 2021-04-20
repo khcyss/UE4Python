@@ -15,7 +15,7 @@
 #include "UObject/ScriptMacros.h"
 #include "Runtime/Launch/Resources/Version.h"
 
-#include "PyExpand/PythonInclude.h"
+#include "PyExpand/IncludePython.h"
 
 typedef struct
 {
@@ -90,7 +90,7 @@ public:
 	virtual void StartupModule() override;
 	virtual void ShutdownModule() override;
 
-	void RunString(char *);
+	bool RunString(char *);
 	void RunFile(char *);
 
 #if PLATFORM_MAC
@@ -113,6 +113,8 @@ public:
 	void RegisterPyDebug();
 	void UnRegisterPyDebug();
 
+
+	void ImportUnrealModule(const TCHAR* InModuleName);
 
 private:
 	void *ue_python_gil;
