@@ -7,6 +7,9 @@
 PyObject *py_unreal_engine_log(PyObject *, PyObject *);
 PyObject *py_unreal_engine_log_warning(PyObject *, PyObject *);
 PyObject *py_unreal_engine_log_error(PyObject *, PyObject *);
+PyObject* py_ue_is_Editor(ue_PyUObject*, PyObject* args);
+PyObject* py_ue_in_Game(ue_PyUObject*, PyObject* args);
+
 PyObject *py_unreal_engine_add_on_screen_debug_message(PyObject *, PyObject *);
 PyObject *py_unreal_engine_print_string(PyObject *, PyObject *);
 PyObject *py_unreal_engine_get_forward_vector(PyObject *, PyObject *);

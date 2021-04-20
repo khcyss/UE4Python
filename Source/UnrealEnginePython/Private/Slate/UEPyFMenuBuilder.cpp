@@ -1,7 +1,9 @@
 #include "UEPyFMenuBuilder.h"
 
 #include "Wrappers/UEPyESlateEnums.h"
+#if WITH_EDITOR
 #include "AssetToolsModule.h"
+#endif
 
 static PyObject* py_ue_fmenu_builder_begin_section(ue_PyFMenuBuilder* self, PyObject* args)
 {

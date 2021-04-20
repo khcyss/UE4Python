@@ -229,6 +229,9 @@ static PyMethodDef unreal_engine_methods[] = {
 	{ "log_warning", py_unreal_engine_log_warning, METH_VARARGS, "" },
 	{ "log_error", py_unreal_engine_log_error, METH_VARARGS, "" },
 
+	{"is_Editor",(PyCFunction)py_ue_is_Editor,METH_VARARGS,""},
+	{"in_Game",(PyCFunction)py_ue_in_Game,METH_VARARGS,""},
+
 	{ "shutdown", py_unreal_engine_shutdown, METH_VARARGS, "" },
 	{ "set_brutal_finalize", py_unreal_engine_set_brutal_finalize, METH_VARARGS, "" },
 
@@ -603,7 +606,6 @@ static PyMethodDef ue_PyUObject_methods[] = {
 #if ENGINE_MINOR_VERSION >= 15
 	{ "can_modify", (PyCFunction)py_ue_can_modify, METH_VARARGS, "" },
 #endif
-
 
 	{ "set_name", (PyCFunction)py_ue_set_name, METH_VARARGS, "" },
 

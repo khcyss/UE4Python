@@ -18,6 +18,7 @@
 #include "Runtime/CoreUObject/Public/Serialization/ObjectWriter.h"
 #include "Runtime/CoreUObject/Public/Serialization/ObjectReader.h"
 #include "UnrealType.h"
+#include "Engine/Engine.h"
 
 PyObject *py_ue_get_class(ue_PyUObject * self, PyObject * args)
 {
@@ -685,6 +686,7 @@ PyObject *py_ue_set_name(ue_PyUObject *self, PyObject * args)
 
 	Py_RETURN_FALSE;
 }
+
 
 PyObject *py_ue_set_outer(ue_PyUObject *self, PyObject * args)
 {

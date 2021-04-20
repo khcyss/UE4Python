@@ -137,7 +137,7 @@ void FUnrealEnginePythonModule::UESetupPythonInterpreter(bool verbose)
 	}
 
 	PySys_SetArgv(Args.Num(), argv);
-
+	
 	unreal_engine_init_py_module();
 
 	PyObject *py_sys = PyImport_ImportModule("sys");
@@ -515,7 +515,7 @@ void FUnrealEnginePythonModule::StartupModule()
 #if !UE_BUILD_SHIPPING
 	DebugModule = PyImport_ImportModule("Debug");
 #endif
-
+	RegisterPyDebug();
 	if (PyImport_ImportModule("ue_site"))
 	{
 		UE_LOG(LogPython, Log, TEXT("ue_site Python module successfully imported"));

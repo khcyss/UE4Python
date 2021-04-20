@@ -82,6 +82,31 @@ PyObject *py_unreal_engine_log_error(PyObject * self, PyObject * args)
 	Py_RETURN_NONE;
 }
 
+PyObject* py_ue_is_Editor(ue_PyUObject* self, PyObject* args)
+{
+	ue_py_check(self);
+	if (GEngine->IsEditor())
+		Py_RETURN_TRUE;
+	else
+		Py_RETURN_FALSE;
+}
+
+
+PyObject* py_ue_in_Game(ue_PyUObject*, PyObject* args)
+{
+	if (GEngine && GEngine->GetWorld())
+	{
+		for (FWorldContext each : GEngine->GetWorldContexts())
+		{
+			if (each.WorldType == EWorldType::Type::Game || each.WorldType == EWorldType::EditorPreview || each.WorldType == EWorldType::PIE || each.WorldType == EWorldType::GamePreview || each.WorldType == EWorldType::GameRPC)
+			{
+				Py_RETURN_TRUE;
+			}
+		}
+	}
+	Py_RETURN_FALSE;
+}
+
 PyObject *py_unreal_engine_add_on_screen_debug_message(PyObject * self, PyObject * args)
 {
 	int key;
