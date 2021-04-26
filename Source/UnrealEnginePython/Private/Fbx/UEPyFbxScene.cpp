@@ -90,6 +90,12 @@ static PyObject *py_ue_fbx_scene_triangulate(ue_PyFbxScene *self, PyObject *args
 	Py_RETURN_FALSE;
 }
 
+static PyObject* py_ue_fbx_scene_get_node_count()
+{
+
+}
+
+
 static PyMethodDef ue_PyFbxScene_methods[] = {
 	{ "convert", (PyCFunction)py_ue_fbx_scene_convert, METH_VARARGS, "" },
 	{ "triangulate", (PyCFunction)py_ue_fbx_scene_triangulate, METH_VARARGS, "" },
@@ -98,6 +104,7 @@ static PyMethodDef ue_PyFbxScene_methods[] = {
 	{ "get_src_object", (PyCFunction)py_ue_fbx_scene_get_src_object, METH_VARARGS, "" },
 	{ "get_pose_count", (PyCFunction)py_ue_fbx_scene_get_pose_count, METH_VARARGS, "" },
 	{ "get_pose", (PyCFunction)py_ue_fbx_scene_get_pose, METH_VARARGS, "" },
+	/*{ "get_node_count", (PyCFunction)py_ue_fbx_scene_get_pose, METH_VARARGS, "" },*/
 	{ NULL }  /* Sentinel */
 };
 

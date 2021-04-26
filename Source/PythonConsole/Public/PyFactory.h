@@ -12,8 +12,7 @@ class UPyFactory : public UFactory
 public:
 
 	virtual UObject* FactoryCreateFile(UClass * Class, UObject *InParent, FName InName, EObjectFlags Flags, const FString& Filename, const TCHAR* Parms, FFeedbackContext *Warn, bool& bOutOperationCanceled) override {
-		return PyFactoryCreateFile(Class, InParent, InName.ToString(), Filename);
-		//return PyFactoryCreateFile(InParent, InName.ToString(), Filename);
+		return PyFactoryCreateFile(Class, InParent, InName.ToString(),Flags, Filename);
 	}
 
 
@@ -47,7 +46,7 @@ public:
 	}
 
 	UFUNCTION(BlueprintImplementableEvent)
-	UObject* PyFactoryCreateFile(UClass * Class, UObject *InParent, const FString & InName, const FString & Filename);
+	UObject* PyFactoryCreateFile(UClass * Class, UObject *InParent, const FString & InName,const TEnumAsByte <enum EObjectFlags>& Flags, const FString & Filename);
 
 	//UFUNCTION(BlueprintImplementableEvent)
 	//UObject* PyFactoryCreateBinary(UClass* InClass, UObject* InParent, FName InName, UObject* Context,FString Type, const uint8*& Buffer, const uint8* BufferEnd);

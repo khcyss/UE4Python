@@ -4,6 +4,29 @@
 #if WITH_EDITOR
 
 #include "UEPyFbx.h"
+#include "UEPyFbxNode.h"
+#include "Engine/StaticMesh.h"
+#include "ObjectMacros.h"
+
+static FbxString GetNodeNameWithoutNamespace(FbxNode* Node)
+{
+	FbxString NodeName = Node->GetName();
+
+	// Namespaces are marked with colons so find the last colon which will mark the start of the actual name
+	int32 LastNamespceIndex = NodeName.ReverseFind(':');
+
+	if (LastNamespceIndex == -1)
+	{
+		// No namespace
+		return NodeName;
+	}
+	else
+	{
+		// chop off the namespace
+		return NodeName.Right(NodeName.GetLen() - (LastNamespceIndex + 1));
+	}
+}
+
 
 static PyObject *py_ue_fbx_importer_get_anim_stack_count(ue_PyFbxImporter *self, PyObject *args)
 {
@@ -71,11 +94,175 @@ static PyObject *py_ue_fbx_importer_import(ue_PyFbxImporter *self, PyObject *arg
 	Py_RETURN_FALSE;
 }
 
+static PyObject* FillCollisionModelList(ue_PyFbxImporter* self, PyObject* args)
+{
+	PyObject* py_object;
+	if (!PyArg_ParseTuple(args, "O", &py_object))
+	{
+		Py_RETURN_FALSE;
+	}
+
+	ue_PyFbxNode* py_fbx_Node = py_ue_is_fbx_node(py_object);
+	if (!py_fbx_Node)
+	{
+		PyErr_SetString(PyExc_Exception, "argument is not a FbxNode");
+		Py_RETURN_FALSE;
+	}
+
+	FbxString NodeName = GetNodeNameWithoutNamespace(py_fbx_Node->fbx_node);
+
+	if (NodeName.Find("UCX") != -1 || NodeName.Find("MCDCX") != -1 ||
+		NodeName.Find("UBX") != -1 || NodeName.Find("USP") != -1 || NodeName.Find("UCP") != -1)
+	{
+		// Get name of static mesh that the collision model connect to
+		uint32 StartIndex = NodeName.Find('_') + 1;
+		int32 TmpEndIndex = NodeName.Find('_', StartIndex);
+		int32 EndIndex = TmpEndIndex;
+		// Find the last '_' (underscore)
+		while (TmpEndIndex >= 0)
+		{
+			EndIndex = TmpEndIndex;
+			TmpEndIndex = NodeName.Find('_', EndIndex + 1);
+		}
+
+		const int32 NumMeshNames = 2;
+		FbxString MeshName[NumMeshNames];
+		if (EndIndex >= 0)
+		{
+			// all characters between the first '_' and the last '_' are the FBX mesh name
+			// convert the name to upper because we are case insensitive
+			MeshName[0] = NodeName.Mid(StartIndex, EndIndex - StartIndex).Upper();
+
+			// also add a version of the mesh name that includes what follows the last '_'
+			// in case that's not a suffix but, instead, is part of the mesh name
+			if (StartIndex < (int32)NodeName.GetLen())
+			{
+				MeshName[1] = NodeName.Mid(StartIndex).Upper();
+			}
+		}
+		else if (StartIndex < (int32)NodeName.GetLen())
+		{
+			MeshName[0] = NodeName.Mid(StartIndex).Upper();
+		}
+
+		for (int32 NameIdx = 0; NameIdx < NumMeshNames; ++NameIdx)
+		{
+			if ((int32)MeshName[NameIdx].GetLen() > 0)
+			{
+				FbxMap<FbxString, TSharedPtr<FbxArray<ue_PyFbxNode* > > >::RecordType const* Models = self->CollisionModels.Find(MeshName[NameIdx]);
+				TSharedPtr< FbxArray<ue_PyFbxNode* > > Record;
+				if (!Models)
+				{
+					Record = MakeShareable(new FbxArray<ue_PyFbxNode*>());
+					self->CollisionModels.Insert(MeshName[NameIdx], Record);
+				}
+				else
+				{
+					Record = Models->GetValue();
+				}
+
+				//Unique add
+				Record->AddUnique(py_fbx_Node);
+			}
+		}
+
+		Py_RETURN_TRUE;
+	}
+
+	Py_RETURN_FALSE;
+}
+
+static PyObject* ImportMesh(ue_PyFbxImporter* self, PyObject* args)
+{
+	PyObject* py_object;
+	PyObject* py_Inclassobject;
+	PyObject* py_inParentobject;
+	char* py_name;
+	if (!PyArg_ParseTuple(args, "OOOs", &py_object,&py_Inclassobject,&py_inParentobject,&py_name))
+	{
+		Py_RETURN_FALSE;
+	}	
+
+
+	ue_PyFbxNode* py_fbx_Node = py_ue_is_fbx_node(py_object);
+	if (!py_fbx_Node)
+	{
+		PyErr_SetString(PyExc_Exception, "argument is not a FbxNode");
+		Py_RETURN_FALSE;
+	}
+	UClass* Inclass = ue_py_check_type<UClass>(py_Inclassobject);
+	if (!Inclass)
+	{
+		PyErr_SetString(PyExc_Exception, "argument is not a FbxNode");
+		Py_RETURN_FALSE;
+	}
+
+	UObject* InParent = ue_py_check_type<UObject>(py_inParentobject);
+	if (!InParent)
+	{
+		PyErr_SetString(PyExc_Exception, "argument is not a FbxNode");
+		Py_RETURN_FALSE;
+	}
+
+	FString MeshName(py_name);
+
+	// Parent package to place new meshes
+	UPackage* Package = NULL;
+	if (InParent != nullptr && InParent->IsA(UPackage::StaticClass()))
+	{
+		Package = StaticCast<UPackage*>(InParent);
+	}
+
+	//UStaticMesh* StaticMesh = NewObject<UStaticMesh>(Package, FName(*MeshName), Flags | RF_Public);
+
+	//if (StaticMesh->SourceModels.Num() < LODIndex + 1)
+	//{
+	//	// Add one LOD 
+	//	StaticMesh->AddSourceModel();
+
+	//	if (StaticMesh->SourceModels.Num() < LODIndex + 1)
+	//	{
+	//		LODIndex = StaticMesh->SourceModels.Num() - 1;
+	//	}
+	//}
+
+	//FMeshDescription* MeshDescription = StaticMesh->GetMeshDescription(LODIndex);
+	//if (MeshDescription == nullptr)
+	//{
+	//	MeshDescription = StaticMesh->CreateMeshDescription(LODIndex);
+	//	check(MeshDescription != nullptr);
+	//	StaticMesh->CommitMeshDescription(LODIndex);
+	//	//Make sure an imported mesh do not get reduce if there was no mesh data before reimport.
+	//	//In this case we have a generated LOD convert to a custom LOD
+	//	StaticMesh->SourceModels[LODIndex].ReductionSettings.MaxDeviation = 0.0f;
+	//	StaticMesh->SourceModels[LODIndex].ReductionSettings.PercentTriangles = 1.0f;
+	//	StaticMesh->SourceModels[LODIndex].ReductionSettings.PercentVertices = 1.0f;
+	//}
+	//else if (InStaticMesh != NULL && LODIndex > 0)
+	//{
+	//	// clear out the old mesh data
+	//	MeshDescription->Empty();
+	//}
+
+	//FStaticMeshSourceModel& SrcModel = StaticMesh->SourceModels[LODIndex];
+
+	//// make sure it has a new lighting guid
+	//StaticMesh->LightingGuid = FGuid::NewGuid();
+
+	//// Set it to use textured lightmaps. Note that Build Lighting will do the error-checking (texcoordindex exists for all LODs, etc).
+	//StaticMesh->LightMapResolution = 64;
+	//StaticMesh->LightMapCoordinateIndex = 1;
+}
+
+
+
+
 static PyMethodDef ue_PyFbxImporter_methods[] = {
 	{ "initialize", (PyCFunction)py_ue_fbx_importer_initialize, METH_VARARGS, "" },
 	{ "_import", (PyCFunction)py_ue_fbx_importer_import, METH_VARARGS, "" },
 	{ "get_anim_stack_count", (PyCFunction)py_ue_fbx_importer_get_anim_stack_count, METH_VARARGS, "" },
 	{ "get_take_local_time_span", (PyCFunction)py_ue_fbx_importer_get_take_local_time_span, METH_VARARGS, "" },
+	{ "fill_collision_model_list", (PyCFunction)FillCollisionModelList, METH_VARARGS, "" },
 	{ NULL }  /* Sentinel */
 };
 
