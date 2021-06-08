@@ -118,6 +118,7 @@ public class UnrealEnginePython : ModuleRules
                 "Core",
                 "Sockets",
                 "Networking"
+                
 				// ... add other public dependencies that you statically link with here ...
 			}
             );
@@ -192,13 +193,15 @@ public class UnrealEnginePython : ModuleRules
                 "RawMesh",
                 "DesktopWidgets",
                 "EditorWidgets",
-                "FBX",
                 "Persona",
                 "PropertyEditor",
                 "LandscapeEditor",
                 "MaterialEditor"
             });
         }
+
+        AddEngineThirdPartyPrivateStaticDependencies(Target, "FBX");
+        PrivateDependencyModuleNames.Add("FBX");
 
         if ((Target.Platform == UnrealTargetPlatform.Win64) || (Target.Platform == UnrealTargetPlatform.Win32))
         {

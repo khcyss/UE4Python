@@ -1,8 +1,18 @@
 #pragma once
 
 #include "UnrealEd.h"
-
+#include <fbxsdk.h>
+#include "FbxImporter.h"
+#include "scene/fbxscene.h"
+#include "scene/geometry/fbxnode.h"
+#include "core/fbxobject.h"
+#include "scene/shading/fbxsurfacematerial.h"
+#include "Materials/MaterialInterface.h"
+#include "scene/shading/fbxfiletexture.h"
 #include "PyFbxFactory.generated.h"
+
+
+
 
 
 
@@ -29,5 +39,58 @@ class UPyFbxFactory : public UFbxFactory
 			FFeedbackContext * Warn,
 			bool & bOutOperationCanceled) override;
 
+	virtual int32 CreateNodeMaterials(FbxNode* FbxNode, TArray<UMaterialInterface*>& OutMaterials, TArray<FString>& UVSets, bool bForSkeletalMesh);
+
+
+	/**
+	 * Create Unreal material from Fbx material.
+	 * Only setup channels that connect to texture, and setup the UV coordinate of texture.
+	 * If diffuse channel has no texture, one default node will be created with constant.
+	 *
+	 * @param KFbxSurfaceMaterial*  Fbx material
+	 * @param outMaterials Unreal Materials we created
+	 * @param outUVSets
+	 */
+	void CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray<class UMaterialInterface*>& OutMaterials, TArray<FString>& UVSets, bool bForSkeletalMesh);
+
+
+
+	/**
+	* Create and link texture to the right material parameter value
+	*
+	* @param FbxMaterial	Fbx material object
+	* @param UnrealMaterial
+	* @param MaterialProperty The material component to import
+	* @param ParameterValue
+	* @param bSetupAsNormalMap
+	* @return bool
+	*/
+	bool LinkMaterialProperty(FbxSurfaceMaterial& FbxMaterial,
+		UMaterialInstanceConstant* UnrealMaterial,
+		const char* MaterialProperty,
+		FName ParameterValue,
+		bool bSetupAsNormalMap);
+
+	/**
+	 * Generate Unreal texture object from FBX texture.
+	 *
+	 * @param FbxTexture FBX texture object to import.
+	 * @param bSetupAsNormalMap Flag to import this texture as normal map.
+	 * @return UTexture* Unreal texture object generated.
+	 */
+	UTexture* ImportTexture(FbxFileTexture* FbxTexture, bool bSetupAsNormalMap);
+
+	/**
+	* Make material Unreal asset name from the Fbx material
+	*
+	* @param FbxMaterial Material from the Fbx node
+	* @return Sanitized asset name
+	*/
+	FString GetMaterialFullName(FbxSurfaceMaterial& FbxMaterial);
+private:
+	UnFbx::FBXImportOptions* ImportOptions;
+	TWeakObjectPtr<UObject> Parent;
+	FString FileBasePath;
+	FImportedMaterialData ImportedMaterialData;
 };
 

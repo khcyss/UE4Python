@@ -512,6 +512,7 @@ void FUnrealEnginePythonModule::StartupModule()
 #if !UE_BUILD_SHIPPING
 	DebugModule = PyImport_ImportModule("Debug");
 #endif
+	
 
 	if (PyImport_ImportModule("ue_site"))
 	{
