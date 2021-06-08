@@ -24,6 +24,7 @@ public class PythonConsole : ModuleRules
 
         AddEngineThirdPartyPrivateStaticDependencies(Target, "FBX");
         PrivateDependencyModuleNames.Add("FBX");
+        PrivateDependencyModuleNames.Add("MeshDescription");
 
         PrivateDependencyModuleNames.AddRange(
             new string[] {

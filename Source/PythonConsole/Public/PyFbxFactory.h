@@ -42,6 +42,13 @@ class UPyFbxFactory : public UFbxFactory
 	virtual int32 CreateNodeMaterials(FbxNode* FbxNode, TArray<UMaterialInterface*>& OutMaterials, TArray<FString>& UVSets, bool bForSkeletalMesh);
 
 
+	void initImportOptions(UnFbx::FBXImportOptions* Options);
+
+
+
+
+	TArray<UStaticMesh*> ImportSataticMesh(FbxNode* ParentNode,UObject* Outer, EObjectFlags Flags, UnFbx::FFbxImporter* FbxImporter,const FString& Suffix);
+
 	/**
 	 * Create Unreal material from Fbx material.
 	 * Only setup channels that connect to texture, and setup the UV coordinate of texture.
@@ -87,10 +94,14 @@ class UPyFbxFactory : public UFbxFactory
 	* @return Sanitized asset name
 	*/
 	FString GetMaterialFullName(FbxSurfaceMaterial& FbxMaterial);
+
+
+	bool CanUseMaterialWithInstance(FbxSurfaceMaterial& FbxMaterial, const char* MaterialProperty, FString ParameterValueName, UMaterialInterface* BaseMaterial, TArray<FString>& UVSet);
+
 private:
 	UnFbx::FBXImportOptions* ImportOptions;
 	TWeakObjectPtr<UObject> Parent;
 	FString FileBasePath;
-	FImportedMaterialData ImportedMaterialData;
+	UnFbx::FImportedMaterialData ImportedMaterialData;
 };
 
