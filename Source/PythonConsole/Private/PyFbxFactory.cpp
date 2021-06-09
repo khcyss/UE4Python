@@ -25,6 +25,8 @@
 #include "Classes/Engine/StaticMesh.h"
 #include "MeshElementArray.h"
 #include "MeshTypes.h"
+#include "Factories/MaterialImportHelpers.h"
+#include "UObject/UObjectGlobals.h"
 
 
 
@@ -300,145 +302,10 @@ UObject * UPyFbxFactory::FactoryCreateFile(UClass* InClass, UObject* InParent, F
 	const TCHAR* Type = *FileExtension;
 	UnFbx::FFbxImporter* FbxImporter = UnFbx::FFbxImporter::GetInstance();
 	ImportOptions = FbxImporter->GetImportOptions();
-	ImportOptions->bImportMaterials = false;
-	ImportOptions->bImportTextures = false;
-	ImportOptions->BaseMaterial = LoadObject<UMaterialInterface>(NULL, TEXT("/Game/XiaoGu/Materials/Master/M_Common.M_Common"), nullptr, LOAD_Quiet | LOAD_NoWarn);
-	ImportOptions->BaseColorName = TEXT("BaseColorTint");
-	ImportOptions->BaseDiffuseTextureName = TEXT("DiffuseTexture");
-	ImportOptions->BaseNormalTextureName = TEXT("NormalMap");
-	ImportOptions->BaseSpecularTextureName = TEXT("SpecularTetxture");
+	initImportOptions(ImportOptions);
 	FbxImporter->ImportFromFile(Filename, Type);
 	FbxNode* RootNode = FbxImporter->Scene->GetRootNode();
-	TArray<UStaticMesh*> ImportedObjects;
-	for (int i = 0; i < RootNode->GetChildCount(); i++)
-	{
-		if (RootNode->GetChild(i)->GetMesh())
-		{
-			TArray<UMaterialInterface*> Materials;
-			TArray<FFbxImporter::FFbxMaterial> MeshMaterials;
-			TArray<FbxNode*> FbxMeshArray;
-			FbxNode* Node = RootNode->GetChild(i);
-			FbxMeshArray.Add(RootNode->GetChild(i));
-			UStaticMesh* Mesh = FbxImporter->ImportStaticMesh(InParent, RootNode->GetChild(i), *FString::Printf(TEXT("%s_%s"), *Name, *FString(RootNode->GetChild(i)->GetName())), Flags, nullptr);
-			Mesh->StaticMaterials.Empty();
-			Mesh->PostEditChange();
-			FFBXUVs FBXUVs(FbxImporter, RootNode->GetChild(i)->GetMesh());
-			int32 FBXNamedLightMapCoordinateIndex = FBXUVs.FindLightUVIndex();
-			if (FBXNamedLightMapCoordinateIndex != INDEX_NONE)
-			{
-				Mesh->LightMapCoordinateIndex = FBXNamedLightMapCoordinateIndex;
-			}
-			CreateNodeMaterials(RootNode->GetChild(i), Materials, FBXUVs.UVSets,false);
-			int32 MaterialCount = 0;
-			MaterialCount = RootNode->GetChild(i)->GetMaterialCount();
-
-			// Used later to offset the material indices on the raw triangle data
-			int32 MaterialIndexOffset = MeshMaterials.Num();
-
-			for (int32 MaterialIndex = 0; MaterialIndex < MaterialCount; MaterialIndex++)
-			{
-				FFbxImporter::FFbxMaterial* NewMaterial = new(MeshMaterials) FFbxImporter::FFbxMaterial;
-				FbxSurfaceMaterial* FbxMaterial = Node->GetMaterial(MaterialIndex);
-				NewMaterial->FbxMaterial = FbxMaterial;
-				NewMaterial->Material = Materials[MaterialIndex];
-			}
-
-			if (MaterialCount == 0)
-			{
-				UMaterial* DefaultMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
-				check(DefaultMaterial);
-				FFbxImporter::FFbxMaterial* NewMaterial = new(MeshMaterials) FFbxImporter::FFbxMaterial;
-				NewMaterial->Material = DefaultMaterial;
-				NewMaterial->FbxMaterial = NULL;
-				MaterialCount = 1;
-			}
-
-			FMeshDescription* MeshDescription = Mesh->GetMeshDescription(0);
-			if (MeshDescription == nullptr)
-			{
-				MeshDescription = Mesh->CreateMeshDescription(0);
-				check(MeshDescription != nullptr);
-				Mesh->CommitMeshDescription(0);
-				//Make sure an imported mesh do not get reduce if there was no mesh data before reimport.
-				//In this case we have a generated LOD convert to a custom LOD
-				Mesh->SourceModels[0].ReductionSettings.MaxDeviation = 0.0f;
-				Mesh->SourceModels[0].ReductionSettings.PercentTriangles = 1.0f;
-				Mesh->SourceModels[0].ReductionSettings.PercentVertices = 1.0f;
-			}
-
-			TVertexInstanceAttributesRef<FVector2D> VertexInstanceUVs = MeshDescription->VertexInstanceAttributes().GetAttributesRef<FVector2D>(MeshAttribute::VertexInstance::TextureCoordinate);
-			int32 FirstOpenUVChannel = VertexInstanceUVs.GetNumIndices() >= MAX_MESH_TEXTURE_COORDS_MD ? 1 : VertexInstanceUVs.GetNumIndices();
-			TPolygonGroupAttributesRef<FName> PolygonGroupImportedMaterialSlotNames = MeshDescription->PolygonGroupAttributes().GetAttributesRef<FName>(MeshAttribute::PolygonGroup::ImportedMaterialSlotName);
-
-			TArray<FStaticMaterial> MaterialToAdd;
-		
-			for (const FPolygonGroupID PolygonGroupID : MeshDescription->PolygonGroups().GetElementIDs())
-			{
-				const FName& ImportedMaterialSlotName = PolygonGroupImportedMaterialSlotNames[PolygonGroupID];
-				const FString ImportedMaterialSlotNameString = ImportedMaterialSlotName.ToString();
-				const FName MaterialSlotName = ImportedMaterialSlotName;
-				int32 MaterialIndex = INDEX_NONE;
-				for (int32 FbxMaterialIndex = 0; FbxMaterialIndex < MeshMaterials.Num(); ++FbxMaterialIndex)
-				{
-					FFbxImporter::FFbxMaterial& FbxMaterial = MeshMaterials[FbxMaterialIndex];
-					if (FbxMaterial.GetName().Equals(ImportedMaterialSlotNameString))
-					{
-						MaterialIndex = FbxMaterialIndex;
-						break;
-					}
-				}
-				if (MaterialIndex == INDEX_NONE)
-				{
-					MaterialIndex = PolygonGroupID.GetValue();
-				}
-				UMaterialInterface* Material = MeshMaterials.IsValidIndex(MaterialIndex) ? MeshMaterials[MaterialIndex].Material : UMaterial::GetDefaultMaterial(MD_Surface);
-				FStaticMaterial StaticMaterial(Material, MaterialSlotName, ImportedMaterialSlotName);
-				Mesh->StaticMaterials.Add(StaticMaterial);
-			}
-			if (Mesh)
-			{
-				ImportedObjects.Add(Mesh);
-				//Build the staticmesh
-				FbxImporter->PostImportStaticMesh(Mesh, FbxMeshArray);
-				UFbxStaticMeshImportData* ImportData = Cast<UFbxStaticMeshImportData>(Mesh->AssetImportData);
-				if (ImportData)
-				{
-					ImportData->ImportMaterialOriginalNameData.Empty();
-					ImportData->ImportMeshLodData.Empty();
-
-					for (const FStaticMaterial& Material : Mesh->StaticMaterials)
-					{
-						ImportData->ImportMaterialOriginalNameData.Add(Material.ImportedMaterialSlotName);
-					}
-					for (int32 LODResoureceIndex = 0; LODResoureceIndex < Mesh->RenderData->LODResources.Num(); ++LODResoureceIndex)
-					{
-						ImportData->ImportMeshLodData.AddZeroed();
-						FStaticMeshLODResources& LOD = Mesh->RenderData->LODResources[LODResoureceIndex];
-						int32 NumSections = LOD.Sections.Num();
-						for (int32 SectionIndex = 0; SectionIndex < NumSections; ++SectionIndex)
-						{
-							int32 MaterialLodSectionIndex = LOD.Sections[SectionIndex].MaterialIndex;
-							if (Mesh->SectionInfoMap.GetSectionNumber(LODResoureceIndex) > SectionIndex)
-							{
-								//In case we have a different ordering then the original fbx order use the sectioninfomap
-								const FMeshSectionInfo& SectionInfo = Mesh->SectionInfoMap.Get(LODResoureceIndex, SectionIndex);
-								MaterialLodSectionIndex = SectionInfo.MaterialIndex;
-							}
-							if (ImportData->ImportMaterialOriginalNameData.IsValidIndex(MaterialLodSectionIndex))
-							{
-								ImportData->ImportMeshLodData[LODResoureceIndex].SectionOriginalMaterialName.Add(ImportData->ImportMaterialOriginalNameData[MaterialLodSectionIndex]);
-							}
-							else
-							{
-								ImportData->ImportMeshLodData[LODResoureceIndex].SectionOriginalMaterialName.Add(TEXT("InvalidMaterialIndex"));
-							}
-						}
-					}
-				}
-			}
-		}
-			
-	}
+	TArray<UStaticMesh*> ImportedObjects = ImportSataticMesh(RootNode,InParent, Flags,FbxImporter, Name);
 	FbxImporter->ReleaseScene();
 	if (ImportedObjects.Num() > 0)
 		return ImportedObjects[0];
@@ -524,6 +391,156 @@ int32 UPyFbxFactory::CreateNodeMaterials(FbxNode* FbxNode, TArray<UMaterialInter
 	return MaterialCount;
 }
 
+void UPyFbxFactory::initImportOptions(UnFbx::FBXImportOptions* Options)
+{
+	Options->bImportMaterials = false;
+	Options->bImportTextures = false;
+	Options->BaseMaterial = LoadObject<UMaterialInterface>(NULL, TEXT("/Game/XiaoGu/Materials/Master/M_Common.M_Common"), nullptr, LOAD_Quiet | LOAD_NoWarn);
+	Options->BaseColorName = TEXT("BaseColorTint");
+	Options->BaseDiffuseTextureName = TEXT("DiffuseTexture");
+	Options->BaseNormalTextureName = TEXT("NormalMap");
+	Options->BaseSpecularTextureName = TEXT("SpecularTetxture");
+}
+
+TArray<UStaticMesh*> UPyFbxFactory::ImportSataticMesh(FbxNode* ParentNode, UObject* Outer, EObjectFlags Flags , UnFbx::FFbxImporter* FbxImporter, const FString& Suffix)
+{
+	TArray<UStaticMesh*> RetMeshArr;
+	for (int i = 0; i < ParentNode->GetChildCount(); i++)
+	{
+		FbxNode* Node = ParentNode->GetChild(i);
+		if (Node->GetMesh())
+		{
+			TArray<UMaterialInterface*> Materials;
+			TArray<FFbxImporter::FFbxMaterial> MeshMaterials;
+			TArray<FbxNode*> FbxMeshArray;
+			FbxMeshArray.Add(Node);
+			UStaticMesh* Mesh = FbxImporter->ImportStaticMesh(Outer, Node, *FString::Printf(TEXT("%s_%s"), *Suffix, *FString(Node->GetName())), Flags, nullptr);
+			Mesh->StaticMaterials.Empty();
+			Mesh->PostEditChange();
+			FFBXUVs FBXUVs(FbxImporter, Node->GetMesh());
+			int32 FBXNamedLightMapCoordinateIndex = FBXUVs.FindLightUVIndex();
+			if (FBXNamedLightMapCoordinateIndex != INDEX_NONE)
+			{
+				Mesh->LightMapCoordinateIndex = FBXNamedLightMapCoordinateIndex;
+			}
+			CreateNodeMaterials(Node, Materials, FBXUVs.UVSets, false);
+			int32 MaterialCount = 0;
+			MaterialCount = Node->GetMaterialCount();
+
+			// Used later to offset the material indices on the raw triangle data
+			int32 MaterialIndexOffset = MeshMaterials.Num();
+
+			for (int32 MaterialIndex = 0; MaterialIndex < MaterialCount; MaterialIndex++)
+			{
+				FFbxImporter::FFbxMaterial* NewMaterial = new(MeshMaterials) FFbxImporter::FFbxMaterial;
+				FbxSurfaceMaterial* FbxMaterial = Node->GetMaterial(MaterialIndex);
+				NewMaterial->FbxMaterial = FbxMaterial;
+				NewMaterial->Material = Materials[MaterialIndex];
+			}
+
+			if (MaterialCount == 0)
+			{
+				UMaterial* DefaultMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
+				check(DefaultMaterial);
+				FFbxImporter::FFbxMaterial* NewMaterial = new(MeshMaterials) FFbxImporter::FFbxMaterial;
+				NewMaterial->Material = DefaultMaterial;
+				NewMaterial->FbxMaterial = NULL;
+				MaterialCount = 1;
+			}
+
+			FMeshDescription* MeshDescription = Mesh->GetMeshDescription(0);
+			if (MeshDescription == nullptr)
+			{
+				MeshDescription = Mesh->CreateMeshDescription(0);
+				check(MeshDescription != nullptr);
+				Mesh->CommitMeshDescription(0);
+				//Make sure an imported mesh do not get reduce if there was no mesh data before reimport.
+				//In this case we have a generated LOD convert to a custom LOD
+				Mesh->SourceModels[0].ReductionSettings.MaxDeviation = 0.0f;
+				Mesh->SourceModels[0].ReductionSettings.PercentTriangles = 1.0f;
+				Mesh->SourceModels[0].ReductionSettings.PercentVertices = 1.0f;
+			}
+
+			TVertexInstanceAttributesRef<FVector2D> VertexInstanceUVs = MeshDescription->VertexInstanceAttributes().GetAttributesRef<FVector2D>(MeshAttribute::VertexInstance::TextureCoordinate);
+			int32 FirstOpenUVChannel = VertexInstanceUVs.GetNumIndices() >= MAX_MESH_TEXTURE_COORDS_MD ? 1 : VertexInstanceUVs.GetNumIndices();
+			TPolygonGroupAttributesRef<FName> PolygonGroupImportedMaterialSlotNames = MeshDescription->PolygonGroupAttributes().GetAttributesRef<FName>(MeshAttribute::PolygonGroup::ImportedMaterialSlotName);
+
+			TArray<FStaticMaterial> MaterialToAdd;
+
+			for (const FPolygonGroupID PolygonGroupID : MeshDescription->PolygonGroups().GetElementIDs())
+			{
+				const FName& ImportedMaterialSlotName = PolygonGroupImportedMaterialSlotNames[PolygonGroupID];
+				const FString ImportedMaterialSlotNameString = ImportedMaterialSlotName.ToString();
+				const FName MaterialSlotName = ImportedMaterialSlotName;
+				int32 MaterialIndex = INDEX_NONE;
+				for (int32 FbxMaterialIndex = 0; FbxMaterialIndex < MeshMaterials.Num(); ++FbxMaterialIndex)
+				{
+					FFbxImporter::FFbxMaterial& FbxMaterial = MeshMaterials[FbxMaterialIndex];
+					if (FbxMaterial.GetName().Equals(ImportedMaterialSlotNameString))
+					{
+						MaterialIndex = FbxMaterialIndex;
+						break;
+					}
+				}
+				if (MaterialIndex == INDEX_NONE)
+				{
+					MaterialIndex = PolygonGroupID.GetValue();
+				}
+				UMaterialInterface* Material = MeshMaterials.IsValidIndex(MaterialIndex) ? MeshMaterials[MaterialIndex].Material : UMaterial::GetDefaultMaterial(MD_Surface);
+				FStaticMaterial StaticMaterial(Material, MaterialSlotName, ImportedMaterialSlotName);
+				Mesh->StaticMaterials.Add(StaticMaterial);
+			}
+			if (Mesh)
+			{
+				RetMeshArr.Add(Mesh);
+				//Build the staticmesh
+				FbxImporter->PostImportStaticMesh(Mesh, FbxMeshArray);
+				UFbxStaticMeshImportData* ImportData = Cast<UFbxStaticMeshImportData>(Mesh->AssetImportData);
+				if (ImportData)
+				{
+					ImportData->ImportMaterialOriginalNameData.Empty();
+					ImportData->ImportMeshLodData.Empty();
+
+					for (const FStaticMaterial& Material : Mesh->StaticMaterials)
+					{
+						ImportData->ImportMaterialOriginalNameData.Add(Material.ImportedMaterialSlotName);
+					}
+					for (int32 LODResoureceIndex = 0; LODResoureceIndex < Mesh->RenderData->LODResources.Num(); ++LODResoureceIndex)
+					{
+						ImportData->ImportMeshLodData.AddZeroed();
+						FStaticMeshLODResources& LOD = Mesh->RenderData->LODResources[LODResoureceIndex];
+						int32 NumSections = LOD.Sections.Num();
+						for (int32 SectionIndex = 0; SectionIndex < NumSections; ++SectionIndex)
+						{
+							int32 MaterialLodSectionIndex = LOD.Sections[SectionIndex].MaterialIndex;
+							if (Mesh->SectionInfoMap.GetSectionNumber(LODResoureceIndex) > SectionIndex)
+							{
+								//In case we have a different ordering then the original fbx order use the sectioninfomap
+								const FMeshSectionInfo& SectionInfo = Mesh->SectionInfoMap.Get(LODResoureceIndex, SectionIndex);
+								MaterialLodSectionIndex = SectionInfo.MaterialIndex;
+							}
+							if (ImportData->ImportMaterialOriginalNameData.IsValidIndex(MaterialLodSectionIndex))
+							{
+								ImportData->ImportMeshLodData[LODResoureceIndex].SectionOriginalMaterialName.Add(ImportData->ImportMaterialOriginalNameData[MaterialLodSectionIndex]);
+							}
+							else
+							{
+								ImportData->ImportMeshLodData[LODResoureceIndex].SectionOriginalMaterialName.Add(TEXT("InvalidMaterialIndex"));
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (Node->GetChildCount() > 0)
+		{
+			RetMeshArr.Append(ImportSataticMesh(Node,Outer,Flags,FbxImporter,Suffix));
+		}
+	}
+	return RetMeshArr;
+}
+
 void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray<UMaterialInterface*>& OutMaterials, TArray<FString>& UVSets, bool bForSkeletalMesh)
 {
 	// Make sure we have a parent
@@ -531,18 +548,7 @@ void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray
 	{
 		return;
 	}
-	//下面这段是判断是否之前导入过的材质
-	//if (ImportOptions->OverrideMaterials.Contains(FbxMaterial.GetUniqueID()))
-	//{
-	//	UMaterialInterface* FoundMaterial = *(ImportOptions->OverrideMaterials.Find(FbxMaterial.GetUniqueID()));
-	//	if (ImportedMaterialData.IsUnique(FbxMaterial, FName(*FoundMaterial->GetPathName())) == false)
-	//	{
-	//		ImportedMaterialData.AddImportedMaterial(FbxMaterial, *FoundMaterial);
-	//	}
-	//	// The material is override add the existing one
-	//	OutMaterials.Add(FoundMaterial);
-	//	return;
-	//}
+	
 	FString MaterialFullName = GetMaterialFullName(FbxMaterial);
 	FString BasePackageName = FPackageName::GetLongPackagePath(Parent->GetOutermost()->GetName());
 	if (ImportOptions->MaterialBasePath != NAME_None)
@@ -560,40 +566,12 @@ void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray
 	// The material could already exist in the project
 	FName ObjectPath = *(BasePackageName + TEXT(".") + MaterialFullName);
 
-	//if (ImportedMaterialData.IsUnique(FbxMaterial, ObjectPath))
-	//{
-	//	UMaterialInterface* FoundMaterial = ImportedMaterialData.GetUnrealMaterial(FbxMaterial);
-	//	if (FoundMaterial)
-	//	{
-	//		// The material was imported from this FBX.  Reuse it
-	//		OutMaterials.Add(FoundMaterial);
-	//		return;
-	//	}
-	//}
-	//else
-	//{
-		UnFbx::FBXImportOptions* FbxImportOptions =  ImportOptions;//GetImportOptions();
+	
+	UnFbx::FBXImportOptions* FbxImportOptions =  ImportOptions;//GetImportOptions();
 
-		FText Error;
-		UMaterialInterface* FoundMaterial = UMaterialImportHelpers::FindExistingMaterialFromSearchLocation(MaterialFullName, BasePackageName, FbxImportOptions->MaterialSearchLocation, Error);
+	FText Error;
+	UMaterialInterface* FoundMaterial = UMaterialImportHelpers::FindExistingMaterialFromSearchLocation(MaterialFullName, BasePackageName, FbxImportOptions->MaterialSearchLocation, Error);
 
-		//if (!Error.IsEmpty())
-		//{
-			/*AddTokenizedErrorMessage(
-				FTokenizedMessage::Create(EMessageSeverity::Warning,
-					FText::Format(LOCTEXT("FbxMaterialImport_MultipleMaterialsFound", "While importing '{0}': {1}"),
-						FText::FromString(Parent->GetOutermost()->GetName()),
-						Error)),
-				FFbxErrors::Generic_LoadingSceneFailed);*/
-		//}
-		// do not override existing materials
-		/*if (FoundMaterial)
-		{
-			ImportedMaterialData.AddImportedMaterial(FbxMaterial, *FoundMaterial);
-			OutMaterials.Add(FoundMaterial);
-			return;
-		}*/
-	//}
 
 	const FString Suffix(TEXT(""));
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools");
@@ -603,33 +581,7 @@ void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray
 	UPackage* Package = CreatePackage(NULL, *FinalPackageName);
 
 	// Check if we can use the specified base material to instance from it
-	bool bCanInstance = false;
-	if (FbxImportOptions->BaseMaterial)
-	{
-		bCanInstance =true;
-		//bCanInstance = false;
-		//// try to use the material as a base for the new material to instance from
-		//FbxProperty FbxDiffuseProperty = FbxMaterial.FindProperty(FbxSurfaceMaterial::sDiffuse);
-		//if (FbxDiffuseProperty.IsValid())
-		//{
-		//	bCanInstance = CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sDiffuse, FbxImportOptions->BaseDiffuseTextureName, FbxImportOptions->BaseMaterial, UVSets);
-		//}
-		//else
-		//{
-		//	bCanInstance = !FbxImportOptions->BaseColorName.IsEmpty();
-		//}
-		//FbxProperty FbxEmissiveProperty = FbxMaterial.FindProperty(FbxSurfaceMaterial::sEmissive);
-		//if (FbxDiffuseProperty.IsValid())
-		//{
-		//	bCanInstance &= CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sEmissive, FbxImportOptions->BaseEmmisiveTextureName, FbxImportOptions->BaseMaterial, UVSets);
-		//}
-		//else
-		//{
-		//	bCanInstance &= !FbxImportOptions->BaseEmissiveColorName.IsEmpty();
-		//}
-		//bCanInstance &= CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sSpecular, FbxImportOptions->BaseSpecularTextureName, FbxImportOptions->BaseMaterial, UVSets);
-		//bCanInstance &= CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sNormalMap, FbxImportOptions->BaseNormalTextureName, FbxImportOptions->BaseMaterial, UVSets);
-	}
+	bool bCanInstance = true;
 
 	UMaterialInterface* UnrealMaterialFinal = nullptr;
 	if (bCanInstance) {
@@ -656,6 +608,7 @@ void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray
 			{
 				LinkMaterialProperty(FbxMaterial, UnrealMaterialConstant, FbxSurfaceMaterial::sBump, FName(*FbxImportOptions->BaseNormalTextureName), true); // no bump in unreal, use as normal map
 			}
+			LinkMaterialProperty(FbxMaterial, UnrealMaterialConstant, FbxSurfaceMaterial::sAmbient, TEXT(""), false);
 
 			// If we only have colors and its different from the base material
 			if (!bDiffuseTextureCreated)
