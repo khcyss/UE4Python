@@ -16,9 +16,21 @@
 #include "Package.h"
 #include "FileHelper.h"
 #include "StringConv.h"
+#include "Misc/CString.h"
+#include "fbxsdk/scene/geometry/fbxlayer.h"
+#include "fbxsdk/scene/geometry/fbxmesh.h"
+#include "MeshDescription.h"
+#include "Math/Vector2D.h"
+#include "UObject/NameTypes.h"
+#include "Classes/Engine/StaticMesh.h"
+#include "MeshElementArray.h"
+#include "MeshTypes.h"
+
+
 
 
 using namespace fbxsdk;
+using namespace UnFbx;
 
 UPyFbxFactory::UPyFbxFactory(const FObjectInitializer& ObjectInitializer)
 	: Super(ObjectInitializer)
@@ -35,11 +47,237 @@ bool UPyFbxFactory::ConfigureProperties() {
 	return true;
 }
 
+
+ANSICHAR* MakeName(const ANSICHAR* Name)
+{
+	const int SpecialChars[] = { '.', ',', '/', '`', '%' };
+
+	const int len = FCStringAnsi::Strlen(Name);
+	ANSICHAR* TmpName = new ANSICHAR[len + 1];
+
+	FCStringAnsi::Strcpy(TmpName, len + 1, Name);
+
+	for (int32 i = 0; i < ARRAY_COUNT(SpecialChars); i++)
+	{
+		ANSICHAR* CharPtr = TmpName;
+		while ((CharPtr = FCStringAnsi::Strchr(CharPtr, SpecialChars[i])) != NULL)
+		{
+			CharPtr[0] = '_';
+		}
+	}
+
+	// Remove namespaces
+	ANSICHAR* NewName;
+	NewName = FCStringAnsi::Strchr(TmpName, ':');
+
+	// there may be multiple namespace, so find the last ':'
+	while (NewName && FCStringAnsi::Strchr(NewName + 1, ':'))
+	{
+		NewName = FCStringAnsi::Strchr(NewName + 1, ':');
+	}
+
+	if (NewName)
+	{
+		return NewName + 1;
+	}
+
+	return TmpName;
+}
+
+
+
+
+
+
+
 void UPyFbxFactory::PostInitProperties() {
 
 	Super::PostInitProperties();
 	ImportUI->MeshTypeToImport = FBXIT_MAX;
 }
+
+
+// Wraps some common code useful for multiple fbx import code path
+struct FFBXUVs
+{
+	// constructor
+	FFBXUVs(UnFbx::FFbxImporter* FbxImporter, FbxMesh* Mesh)
+		: UniqueUVCount(0)
+	{
+		check(Mesh);
+
+		//
+		//	store the UVs in arrays for fast access in the later looping of triangles 
+		//
+		// mapping from UVSets to Fbx LayerElementUV
+		// Fbx UVSets may be duplicated, remove the duplicated UVSets in the mapping 
+		int32 LayerCount = Mesh->GetLayerCount();
+		if (LayerCount > 0)
+		{
+			int32 UVLayerIndex;
+			for (UVLayerIndex = 0; UVLayerIndex < LayerCount; UVLayerIndex++)
+			{
+				FbxLayer* lLayer = Mesh->GetLayer(UVLayerIndex);
+				int UVSetCount = lLayer->GetUVSetCount();
+				if (UVSetCount)
+				{
+					FbxArray<FbxLayerElementUV const*> EleUVs = lLayer->GetUVSets();
+					for (int UVIndex = 0; UVIndex < UVSetCount; UVIndex++)
+					{
+						FbxLayerElementUV const* ElementUV = EleUVs[UVIndex];
+						if (ElementUV)
+						{
+							const char* UVSetName = ElementUV->GetName();
+							FString LocalUVSetName = UTF8_TO_TCHAR(UVSetName);
+							if (LocalUVSetName.IsEmpty())
+							{
+								LocalUVSetName = TEXT("UVmap_") + FString::FromInt(UVLayerIndex);
+							}
+
+							UVSets.AddUnique(LocalUVSetName);
+						}
+					}
+				}
+			}
+		}
+
+
+		// If the the UV sets are named using the following format (UVChannel_X; where X ranges from 1 to 4)
+		// we will re-order them based on these names.  Any UV sets that do not follow this naming convention
+		// will be slotted into available spaces.
+		if (UVSets.Num())
+		{
+			for (int32 ChannelNumIdx = 0; ChannelNumIdx < 4; ChannelNumIdx++)
+			{
+				FString ChannelName = FString::Printf(TEXT("UVChannel_%d"), ChannelNumIdx + 1);
+				int32 SetIdx = UVSets.Find(ChannelName);
+
+				// If the specially formatted UVSet name appears in the list and it is in the wrong spot,
+				// we will swap it into the correct spot.
+				if (SetIdx != INDEX_NONE && SetIdx != ChannelNumIdx)
+				{
+					// If we are going to swap to a position that is outside the bounds of the
+					// array, then we pad out to that spot with empty data.
+					for (int32 ArrSize = UVSets.Num(); ArrSize < ChannelNumIdx + 1; ArrSize++)
+					{
+						UVSets.Add(FString(TEXT("")));
+					}
+					//Swap the entry into the appropriate spot.
+					UVSets.Swap(SetIdx, ChannelNumIdx);
+				}
+			}
+		}
+	}
+
+	void Phase2(UnFbx::FFbxImporter* FbxImporter, FbxMesh* Mesh)
+	{
+		//
+		//	store the UVs in arrays for fast access in the later looping of triangles 
+		//
+		UniqueUVCount = UVSets.Num();
+		if (UniqueUVCount > 0)
+		{
+			LayerElementUV.AddZeroed(UniqueUVCount);
+			UVReferenceMode.AddZeroed(UniqueUVCount);
+			UVMappingMode.AddZeroed(UniqueUVCount);
+		}
+		for (int32 UVIndex = 0; UVIndex < UniqueUVCount; UVIndex++)
+		{
+			LayerElementUV[UVIndex] = NULL;
+			for (int32 UVLayerIndex = 0, LayerCount = Mesh->GetLayerCount(); UVLayerIndex < LayerCount; UVLayerIndex++)
+			{
+				FbxLayer* lLayer = Mesh->GetLayer(UVLayerIndex);
+				int UVSetCount = lLayer->GetUVSetCount();
+				if (UVSetCount)
+				{
+					FbxArray<FbxLayerElementUV const*> EleUVs = lLayer->GetUVSets();
+					for (int32 FbxUVIndex = 0; FbxUVIndex < UVSetCount; FbxUVIndex++)
+					{
+						FbxLayerElementUV const* ElementUV = EleUVs[FbxUVIndex];
+						if (ElementUV)
+						{
+							const char* UVSetName = ElementUV->GetName();
+							FString LocalUVSetName = UTF8_TO_TCHAR(UVSetName);
+							if (LocalUVSetName.IsEmpty())
+							{
+								LocalUVSetName = TEXT("UVmap_") + FString::FromInt(UVLayerIndex);
+							}
+							if (LocalUVSetName == UVSets[UVIndex])
+							{
+								LayerElementUV[UVIndex] = ElementUV;
+								UVReferenceMode[UVIndex] = ElementUV->GetReferenceMode();
+								UVMappingMode[UVIndex] = ElementUV->GetMappingMode();
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+
+		if (UniqueUVCount > MAX_MESH_TEXTURE_COORDS_MD)
+		{
+			//FbxImporter->AddTokenizedErrorMessage(FTokenizedMessage::Create(EMessageSeverity::Warning, FText::Format(LOCTEXT("Error_TooMuchUVChannel", "Reached the maximum number of UV Channels for a Static Mesh({0}) - discarding {1} UV Channels"), FText::AsNumber(MAX_MESH_TEXTURE_COORDS_MD), FText::AsNumber(UniqueUVCount - MAX_MESH_TEXTURE_COORDS_MD))), FFbxErrors::Generic_Mesh_TooMuchUVChannels);
+		}
+
+		UniqueUVCount = FMath::Min<int32>(UniqueUVCount, MAX_MESH_TEXTURE_COORDS_MD);
+	}
+
+	int32 FindLightUVIndex() const
+	{
+		// See if any of our UV set entry names match LightMapUV.
+		for (int32 UVSetIdx = 0; UVSetIdx < UVSets.Num(); UVSetIdx++)
+		{
+			if (UVSets[UVSetIdx] == TEXT("LightMapUV"))
+			{
+				return UVSetIdx;
+			}
+		}
+
+		// not found
+		return INDEX_NONE;
+	}
+
+	// @param FaceCornerIndex usually TriangleIndex * 3 + CornerIndex but more complicated for mixed n-gons
+	int32 ComputeUVIndex(int32 UVLayerIndex, int32 lControlPointIndex, int32 FaceCornerIndex) const
+	{
+		int32 UVMapIndex = (UVMappingMode[UVLayerIndex] == FbxLayerElement::eByControlPoint) ? lControlPointIndex : FaceCornerIndex;
+
+		int32 Ret;
+
+		if (UVReferenceMode[UVLayerIndex] == FbxLayerElement::eDirect)
+		{
+			Ret = UVMapIndex;
+		}
+		else
+		{
+			FbxLayerElementArrayTemplate<int>& Array = LayerElementUV[UVLayerIndex]->GetIndexArray();
+			Ret = Array.GetAt(UVMapIndex);
+		}
+
+		return Ret;
+	}
+
+	// todo: is that needed? could the dtor do it?
+	void Cleanup()
+	{
+		//
+		// clean up.  This needs to happen before the mesh is destroyed
+		//
+		LayerElementUV.Empty();
+		UVReferenceMode.Empty();
+		UVMappingMode.Empty();
+	}
+
+	TArray<FString> UVSets;
+	TArray<FbxLayerElementUV const*> LayerElementUV;
+	TArray<FbxLayerElement::EReferenceMode> UVReferenceMode;
+	TArray<FbxLayerElement::EMappingMode> UVMappingMode;
+	int32 UniqueUVCount;
+};
+
+
+
 
 UObject * UPyFbxFactory::FactoryCreateFile(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, const FString& Filename, const TCHAR* Parms, FFeedbackContext* Warn, bool& bOutOperationCanceled)
 {
@@ -62,6 +300,13 @@ UObject * UPyFbxFactory::FactoryCreateFile(UClass* InClass, UObject* InParent, F
 	const TCHAR* Type = *FileExtension;
 	UnFbx::FFbxImporter* FbxImporter = UnFbx::FFbxImporter::GetInstance();
 	ImportOptions = FbxImporter->GetImportOptions();
+	ImportOptions->bImportMaterials = false;
+	ImportOptions->bImportTextures = false;
+	ImportOptions->BaseMaterial = LoadObject<UMaterialInterface>(NULL, TEXT("/Game/XiaoGu/Materials/Master/M_Common.M_Common"), nullptr, LOAD_Quiet | LOAD_NoWarn);
+	ImportOptions->BaseColorName = TEXT("BaseColorTint");
+	ImportOptions->BaseDiffuseTextureName = TEXT("DiffuseTexture");
+	ImportOptions->BaseNormalTextureName = TEXT("NormalMap");
+	ImportOptions->BaseSpecularTextureName = TEXT("SpecularTetxture");
 	FbxImporter->ImportFromFile(Filename, Type);
 	FbxNode* RootNode = FbxImporter->Scene->GetRootNode();
 	TArray<UStaticMesh*> ImportedObjects;
@@ -69,9 +314,87 @@ UObject * UPyFbxFactory::FactoryCreateFile(UClass* InClass, UObject* InParent, F
 	{
 		if (RootNode->GetChild(i)->GetMesh())
 		{
+			TArray<UMaterialInterface*> Materials;
+			TArray<FFbxImporter::FFbxMaterial> MeshMaterials;
 			TArray<FbxNode*> FbxMeshArray;
+			FbxNode* Node = RootNode->GetChild(i);
 			FbxMeshArray.Add(RootNode->GetChild(i));
 			UStaticMesh* Mesh = FbxImporter->ImportStaticMesh(InParent, RootNode->GetChild(i), *FString::Printf(TEXT("%s_%s"), *Name, *FString(RootNode->GetChild(i)->GetName())), Flags, nullptr);
+			Mesh->StaticMaterials.Empty();
+			Mesh->PostEditChange();
+			FFBXUVs FBXUVs(FbxImporter, RootNode->GetChild(i)->GetMesh());
+			int32 FBXNamedLightMapCoordinateIndex = FBXUVs.FindLightUVIndex();
+			if (FBXNamedLightMapCoordinateIndex != INDEX_NONE)
+			{
+				Mesh->LightMapCoordinateIndex = FBXNamedLightMapCoordinateIndex;
+			}
+			CreateNodeMaterials(RootNode->GetChild(i), Materials, FBXUVs.UVSets,false);
+			int32 MaterialCount = 0;
+			MaterialCount = RootNode->GetChild(i)->GetMaterialCount();
+
+			// Used later to offset the material indices on the raw triangle data
+			int32 MaterialIndexOffset = MeshMaterials.Num();
+
+			for (int32 MaterialIndex = 0; MaterialIndex < MaterialCount; MaterialIndex++)
+			{
+				FFbxImporter::FFbxMaterial* NewMaterial = new(MeshMaterials) FFbxImporter::FFbxMaterial;
+				FbxSurfaceMaterial* FbxMaterial = Node->GetMaterial(MaterialIndex);
+				NewMaterial->FbxMaterial = FbxMaterial;
+				NewMaterial->Material = Materials[MaterialIndex];
+			}
+
+			if (MaterialCount == 0)
+			{
+				UMaterial* DefaultMaterial = UMaterial::GetDefaultMaterial(MD_Surface);
+				check(DefaultMaterial);
+				FFbxImporter::FFbxMaterial* NewMaterial = new(MeshMaterials) FFbxImporter::FFbxMaterial;
+				NewMaterial->Material = DefaultMaterial;
+				NewMaterial->FbxMaterial = NULL;
+				MaterialCount = 1;
+			}
+
+			FMeshDescription* MeshDescription = Mesh->GetMeshDescription(0);
+			if (MeshDescription == nullptr)
+			{
+				MeshDescription = Mesh->CreateMeshDescription(0);
+				check(MeshDescription != nullptr);
+				Mesh->CommitMeshDescription(0);
+				//Make sure an imported mesh do not get reduce if there was no mesh data before reimport.
+				//In this case we have a generated LOD convert to a custom LOD
+				Mesh->SourceModels[0].ReductionSettings.MaxDeviation = 0.0f;
+				Mesh->SourceModels[0].ReductionSettings.PercentTriangles = 1.0f;
+				Mesh->SourceModels[0].ReductionSettings.PercentVertices = 1.0f;
+			}
+
+			TVertexInstanceAttributesRef<FVector2D> VertexInstanceUVs = MeshDescription->VertexInstanceAttributes().GetAttributesRef<FVector2D>(MeshAttribute::VertexInstance::TextureCoordinate);
+			int32 FirstOpenUVChannel = VertexInstanceUVs.GetNumIndices() >= MAX_MESH_TEXTURE_COORDS_MD ? 1 : VertexInstanceUVs.GetNumIndices();
+			TPolygonGroupAttributesRef<FName> PolygonGroupImportedMaterialSlotNames = MeshDescription->PolygonGroupAttributes().GetAttributesRef<FName>(MeshAttribute::PolygonGroup::ImportedMaterialSlotName);
+
+			TArray<FStaticMaterial> MaterialToAdd;
+		
+			for (const FPolygonGroupID PolygonGroupID : MeshDescription->PolygonGroups().GetElementIDs())
+			{
+				const FName& ImportedMaterialSlotName = PolygonGroupImportedMaterialSlotNames[PolygonGroupID];
+				const FString ImportedMaterialSlotNameString = ImportedMaterialSlotName.ToString();
+				const FName MaterialSlotName = ImportedMaterialSlotName;
+				int32 MaterialIndex = INDEX_NONE;
+				for (int32 FbxMaterialIndex = 0; FbxMaterialIndex < MeshMaterials.Num(); ++FbxMaterialIndex)
+				{
+					FFbxImporter::FFbxMaterial& FbxMaterial = MeshMaterials[FbxMaterialIndex];
+					if (FbxMaterial.GetName().Equals(ImportedMaterialSlotNameString))
+					{
+						MaterialIndex = FbxMaterialIndex;
+						break;
+					}
+				}
+				if (MaterialIndex == INDEX_NONE)
+				{
+					MaterialIndex = PolygonGroupID.GetValue();
+				}
+				UMaterialInterface* Material = MeshMaterials.IsValidIndex(MaterialIndex) ? MeshMaterials[MaterialIndex].Material : UMaterial::GetDefaultMaterial(MD_Surface);
+				FStaticMaterial StaticMaterial(Material, MaterialSlotName, ImportedMaterialSlotName);
+				Mesh->StaticMaterials.Add(StaticMaterial);
+			}
 			if (Mesh)
 			{
 				ImportedObjects.Add(Mesh);
@@ -112,13 +435,11 @@ UObject * UPyFbxFactory::FactoryCreateFile(UClass* InClass, UObject* InParent, F
 						}
 					}
 				}
-
-
-				//FbxImporter->UpdateStaticMeshImportData(Mesh, nullptr);
 			}
 		}
 			
 	}
+	FbxImporter->ReleaseScene();
 	if (ImportedObjects.Num() > 0)
 		return ImportedObjects[0];
 	return nullptr;//Super::FactoryCreateFile(InClass, InParent, InName, Flags, Filename, Parms, Warn, bOutOperationCanceled);
@@ -210,17 +531,18 @@ void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray
 	{
 		return;
 	}
-	if (ImportOptions->OverrideMaterials.Contains(FbxMaterial.GetUniqueID()))
-	{
-		UMaterialInterface* FoundMaterial = *(ImportOptions->OverrideMaterials.Find(FbxMaterial.GetUniqueID()));
-		if (ImportedMaterialData.IsUnique(FbxMaterial, FName(*FoundMaterial->GetPathName())) == false)
-		{
-			ImportedMaterialData.AddImportedMaterial(FbxMaterial, *FoundMaterial);
-		}
-		// The material is override add the existing one
-		OutMaterials.Add(FoundMaterial);
-		return;
-	}
+	//下面这段是判断是否之前导入过的材质
+	//if (ImportOptions->OverrideMaterials.Contains(FbxMaterial.GetUniqueID()))
+	//{
+	//	UMaterialInterface* FoundMaterial = *(ImportOptions->OverrideMaterials.Find(FbxMaterial.GetUniqueID()));
+	//	if (ImportedMaterialData.IsUnique(FbxMaterial, FName(*FoundMaterial->GetPathName())) == false)
+	//	{
+	//		ImportedMaterialData.AddImportedMaterial(FbxMaterial, *FoundMaterial);
+	//	}
+	//	// The material is override add the existing one
+	//	OutMaterials.Add(FoundMaterial);
+	//	return;
+	//}
 	FString MaterialFullName = GetMaterialFullName(FbxMaterial);
 	FString BasePackageName = FPackageName::GetLongPackagePath(Parent->GetOutermost()->GetName());
 	if (ImportOptions->MaterialBasePath != NAME_None)
@@ -229,7 +551,7 @@ void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray
 	}
 	else
 	{
-		BasePackageName += TEXT("/");
+		BasePackageName += TEXT("/Material/");
 	}
 	BasePackageName += MaterialFullName;
 
@@ -238,40 +560,40 @@ void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray
 	// The material could already exist in the project
 	FName ObjectPath = *(BasePackageName + TEXT(".") + MaterialFullName);
 
-	if (ImportedMaterialData.IsUnique(FbxMaterial, ObjectPath))
-	{
-		UMaterialInterface* FoundMaterial = ImportedMaterialData.GetUnrealMaterial(FbxMaterial);
-		if (FoundMaterial)
-		{
-			// The material was imported from this FBX.  Reuse it
-			OutMaterials.Add(FoundMaterial);
-			return;
-		}
-	}
-	else
-	{
-		FBXImportOptions* FbxImportOptions = GetImportOptions();
+	//if (ImportedMaterialData.IsUnique(FbxMaterial, ObjectPath))
+	//{
+	//	UMaterialInterface* FoundMaterial = ImportedMaterialData.GetUnrealMaterial(FbxMaterial);
+	//	if (FoundMaterial)
+	//	{
+	//		// The material was imported from this FBX.  Reuse it
+	//		OutMaterials.Add(FoundMaterial);
+	//		return;
+	//	}
+	//}
+	//else
+	//{
+		UnFbx::FBXImportOptions* FbxImportOptions =  ImportOptions;//GetImportOptions();
 
 		FText Error;
 		UMaterialInterface* FoundMaterial = UMaterialImportHelpers::FindExistingMaterialFromSearchLocation(MaterialFullName, BasePackageName, FbxImportOptions->MaterialSearchLocation, Error);
 
-		if (!Error.IsEmpty())
-		{
-			AddTokenizedErrorMessage(
+		//if (!Error.IsEmpty())
+		//{
+			/*AddTokenizedErrorMessage(
 				FTokenizedMessage::Create(EMessageSeverity::Warning,
 					FText::Format(LOCTEXT("FbxMaterialImport_MultipleMaterialsFound", "While importing '{0}': {1}"),
 						FText::FromString(Parent->GetOutermost()->GetName()),
 						Error)),
-				FFbxErrors::Generic_LoadingSceneFailed);
-		}
+				FFbxErrors::Generic_LoadingSceneFailed);*/
+		//}
 		// do not override existing materials
-		if (FoundMaterial)
+		/*if (FoundMaterial)
 		{
 			ImportedMaterialData.AddImportedMaterial(FbxMaterial, *FoundMaterial);
 			OutMaterials.Add(FoundMaterial);
 			return;
-		}
-	}
+		}*/
+	//}
 
 	const FString Suffix(TEXT(""));
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>("AssetTools");
@@ -281,32 +603,32 @@ void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray
 	UPackage* Package = CreatePackage(NULL, *FinalPackageName);
 
 	// Check if we can use the specified base material to instance from it
-	FBXImportOptions* FbxImportOptions = GetImportOptions();
 	bool bCanInstance = false;
 	if (FbxImportOptions->BaseMaterial)
 	{
-		bCanInstance = false;
-		// try to use the material as a base for the new material to instance from
-		FbxProperty FbxDiffuseProperty = FbxMaterial.FindProperty(FbxSurfaceMaterial::sDiffuse);
-		if (FbxDiffuseProperty.IsValid())
-		{
-			bCanInstance = CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sDiffuse, FbxImportOptions->BaseDiffuseTextureName, FbxImportOptions->BaseMaterial, UVSets);
-		}
-		else
-		{
-			bCanInstance = !FbxImportOptions->BaseColorName.IsEmpty();
-		}
-		FbxProperty FbxEmissiveProperty = FbxMaterial.FindProperty(FbxSurfaceMaterial::sEmissive);
-		if (FbxDiffuseProperty.IsValid())
-		{
-			bCanInstance &= CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sEmissive, FbxImportOptions->BaseEmmisiveTextureName, FbxImportOptions->BaseMaterial, UVSets);
-		}
-		else
-		{
-			bCanInstance &= !FbxImportOptions->BaseEmissiveColorName.IsEmpty();
-		}
-		bCanInstance &= CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sSpecular, FbxImportOptions->BaseSpecularTextureName, FbxImportOptions->BaseMaterial, UVSets);
-		bCanInstance &= CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sNormalMap, FbxImportOptions->BaseNormalTextureName, FbxImportOptions->BaseMaterial, UVSets);
+		bCanInstance =true;
+		//bCanInstance = false;
+		//// try to use the material as a base for the new material to instance from
+		//FbxProperty FbxDiffuseProperty = FbxMaterial.FindProperty(FbxSurfaceMaterial::sDiffuse);
+		//if (FbxDiffuseProperty.IsValid())
+		//{
+		//	bCanInstance = CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sDiffuse, FbxImportOptions->BaseDiffuseTextureName, FbxImportOptions->BaseMaterial, UVSets);
+		//}
+		//else
+		//{
+		//	bCanInstance = !FbxImportOptions->BaseColorName.IsEmpty();
+		//}
+		//FbxProperty FbxEmissiveProperty = FbxMaterial.FindProperty(FbxSurfaceMaterial::sEmissive);
+		//if (FbxDiffuseProperty.IsValid())
+		//{
+		//	bCanInstance &= CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sEmissive, FbxImportOptions->BaseEmmisiveTextureName, FbxImportOptions->BaseMaterial, UVSets);
+		//}
+		//else
+		//{
+		//	bCanInstance &= !FbxImportOptions->BaseEmissiveColorName.IsEmpty();
+		//}
+		//bCanInstance &= CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sSpecular, FbxImportOptions->BaseSpecularTextureName, FbxImportOptions->BaseMaterial, UVSets);
+		//bCanInstance &= CanUseMaterialWithInstance(FbxMaterial, FbxSurfaceMaterial::sNormalMap, FbxImportOptions->BaseNormalTextureName, FbxImportOptions->BaseMaterial, UVSets);
 	}
 
 	UMaterialInterface* UnrealMaterialFinal = nullptr;
@@ -404,7 +726,7 @@ void UPyFbxFactory::CreateUnrealMaterial(FbxSurfaceMaterial& FbxMaterial, TArray
 		UnrealMaterialFinal->PreEditChange(NULL);
 		UnrealMaterialFinal->PostEditChange();
 
-		ImportedMaterialData.AddImportedMaterial(FbxMaterial, *UnrealMaterialFinal);
+		//ImportedMaterialData.AddImportedMaterial(FbxMaterial, *UnrealMaterialFinal);
 
 		OutMaterials.Add(UnrealMaterialFinal);
 	}
@@ -464,7 +786,7 @@ UTexture* UPyFbxFactory::ImportTexture(FbxFileTexture* FbxTexture, bool bSetupAs
 	TextureName = ObjectTools::SanitizeObjectName(TextureName);
 
 	// set where to place the textures
-	FString BasePackageName = FPackageName::GetLongPackagePath(Parent->GetOutermost()->GetName()) / TextureName;
+	FString BasePackageName = FPackageName::GetLongPackagePath(Parent->GetOutermost()->GetName())/ TEXT("Texture") / TextureName;
 	BasePackageName = UPackageTools::SanitizePackageName(BasePackageName);
 
 	UTexture* ExistingTexture = NULL;
@@ -567,6 +889,7 @@ UTexture* UPyFbxFactory::ImportTexture(FbxFileTexture* FbxTexture, bool bSetupAs
 	return UnrealTexture;
 }
 
+
 FString UPyFbxFactory::GetMaterialFullName(FbxSurfaceMaterial& FbxMaterial)
 {
 	FString MaterialFullName = UTF8_TO_TCHAR(MakeName(FbxMaterial.GetName()));
@@ -590,4 +913,45 @@ FString UPyFbxFactory::GetMaterialFullName(FbxSurfaceMaterial& FbxMaterial)
 	MaterialFullName = ObjectTools::SanitizeObjectName(MaterialFullName);
 
 	return MaterialFullName;
+}
+
+bool UPyFbxFactory::CanUseMaterialWithInstance(FbxSurfaceMaterial& FbxMaterial, const char* MaterialProperty, FString ParameterValueName, UMaterialInterface* BaseMaterial, TArray<FString>& UVSet)
+{
+	FbxProperty FbxProperty = FbxMaterial.FindProperty(MaterialProperty);
+	if (FbxProperty.IsValid())
+	{
+		int32 LayeredTextureCount = FbxProperty.GetSrcObjectCount<FbxLayeredTexture>();
+		if (LayeredTextureCount == 0)
+		{
+			int32 TextureCount = FbxProperty.GetSrcObjectCount<FbxTexture>();
+			if (TextureCount == 1)
+			{
+				// If we didnt specify a parameter to go with this property we can't use this as base instance
+				if (ParameterValueName.IsEmpty())
+				{
+					return false;
+				}
+				FbxFileTexture* FbxTexture = FbxProperty.GetSrcObject<FbxFileTexture>(0);
+				float ScaleU = FbxTexture->GetScaleU();
+				float ScaleV = FbxTexture->GetScaleV();
+				FbxString UVSetName = FbxTexture->UVSet.Get();
+				FString LocalUVSetName = UTF8_TO_TCHAR(UVSetName.Buffer());
+				int32 SetIndex = UVSet.Find(LocalUVSetName);
+				if ((SetIndex != 0 && SetIndex != INDEX_NONE) || ScaleU != 1.0f || ScaleV != 1.0f)
+				{
+					return false; // no support for custom uv with instanced yet
+				}
+			}
+			else if (TextureCount > 1)
+			{
+				return false; // no support for multiple textures
+			}
+		}
+		else
+		{
+			return false; // no support for layered textures
+		}
+	}
+
+	return true;
 }

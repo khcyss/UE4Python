@@ -87,10 +87,14 @@ class UPyFbxFactory : public UFbxFactory
 	* @return Sanitized asset name
 	*/
 	FString GetMaterialFullName(FbxSurfaceMaterial& FbxMaterial);
+
+
+	bool CanUseMaterialWithInstance(FbxSurfaceMaterial& FbxMaterial, const char* MaterialProperty, FString ParameterValueName, UMaterialInterface* BaseMaterial, TArray<FString>& UVSet);
+
 private:
 	UnFbx::FBXImportOptions* ImportOptions;
 	TWeakObjectPtr<UObject> Parent;
 	FString FileBasePath;
-	FImportedMaterialData ImportedMaterialData;
+	UnFbx::FImportedMaterialData ImportedMaterialData;
 };
 
